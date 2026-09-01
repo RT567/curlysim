@@ -118,7 +118,13 @@ export class SkySystem {
   update(date, conditions, camera) {
     const sun = SunCalc.getPosition(date, LAT, LON)
     const moon = SunCalc.getMoonPosition(date, LAT, LON)
-    const altDeg = sun.altitude / DEG
+    let altDeg = sun.altitude / DEG
+    let sunPos = sun
+    // No night in this sim: when the real sun is down, hold a late-morning sun
+    if (altDeg < 12) {
+      altDeg = 38
+      sunPos = { azimuth: (25 - 180) * DEG, altitude: 38 * DEG }
+    }
     const env = this.env
     env.sunAltitudeDeg = altDeg
 
@@ -129,7 +135,7 @@ export class SkySystem {
     env.dayFactor = day
 
     // sky dome: keep the shader sun from sinking too far below the horizon
-    const sunDir = celestialToWorld(sun)
+    const sunDir = celestialToWorld(sunPos)
     const skySun = sunDir.clone()
     skySun.y = Math.max(skySun.y, -0.08)
     this.sky.material.uniforms.sunPosition.value.copy(skySun)

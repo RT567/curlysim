@@ -43,8 +43,9 @@ export function terrainHeight(x, z) {
   const headNorm = Math.min(headH / 40, 1)
   const lagoon = gauss(z - LAGOON_Z, 110)
 
-  let y = Math.min(inland * 0.09, 2.2) // beach berm
-  y += 5.5 * gauss(inland - 38, 16) * (1 - headNorm) * (1 - 0.9 * lagoon) // dune ridge
+  // wide, gentle foreshore first, then the dune ridge further back
+  let y = Math.min(inland * 0.04, 1.8)
+  y += 6 * gauss(inland - 58, 20) * (1 - headNorm) * (1 - 0.9 * lagoon) // dune ridge
   // hills behind (John Fisher Park stays flat, houses on the rise)
   const hillNoise = 0.8 + 0.2 * Math.sin(z * 0.005 + 1) + 0.12 * Math.sin(z * 0.013)
   y += Math.min(Math.max(inland - 130, 0) * 0.06, 58) * hillNoise * (1 - 0.92 * lagoon)
@@ -153,13 +154,14 @@ function makePool(w, d) {
 }
 
 export function buildTerrain(scene) {
-  const near = buildPatch(-420, 160, -880, 920, 128, 400)
-  const far = buildPatch(-1600, 950, -3600, 3600, 96, 220, -0.4)
+  const near = buildPatch(-420, 160, -880, 920, 200, 600)
+  const far = buildPatch(-1600, 950, -3600, 3600, 140, 300, -0.4)
   scene.add(near, far)
 
   // clubhouses + cafe
+  // North Curly SLSC sits practically on the sand
   const northSLSC = makeBuilding(16, 5, 9, 0xf2ead8, 0xb0543f)
-  northSLSC.position.set(-30, terrainHeight(-30, -430), -430)
+  northSLSC.position.set(-11, terrainHeight(-11, -430), -430)
   const southSLSC = makeBuilding(15, 5, 9, 0xe8e2d2, 0x7a6f5f)
   southSLSC.position.set(-26, terrainHeight(-26, 480), 480)
   const cafe = makeBuilding(8, 3.4, 6, 0xdcd6c4, 0x4f5a63)

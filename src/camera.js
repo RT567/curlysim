@@ -16,7 +16,7 @@ export class POVCamera {
     this.camera = new THREE.PerspectiveCamera(72, 1, 0.1, 12000)
 
     this.seatZ = BANK_PEAK_Z
-    this.seatX = waveField.xBreak + 42
+    this.seatX = Math.max(waveField.xBreak - 20, 30)
     this.eyeHeight = EYE_HEIGHT // debug can lift this for a drone view
 
     this.yaw = 0 // 0 = facing the beach (-X)
@@ -35,9 +35,9 @@ export class POVCamera {
     this._bindPointer(dom)
   }
 
-  // keep the seat just outside wherever today's break line is
+  // sit just inside the break line — sets detonate right in front of you
   reseat() {
-    this.seatX = this.waveField.xBreak + 42
+    this.seatX = Math.max(this.waveField.xBreak - 20, 30)
   }
 
   _bindPointer(dom) {
@@ -79,21 +79,17 @@ export class POVCamera {
     this.y += (targetY - this.y) * Math.min(dt / 0.18, 1)
     this.y = Math.max(this.y, targetY - 0.15)
 
-    // slow horizontal sway from the orbital motion
-    const s = wf._surface(this.seatX, this.seatZ, t)
-    this.swayX += (s.dx * 0.45 - this.swayX) * Math.min(dt * 1.6, 1)
-    this.swayZ += (s.dz * 0.45 - this.swayZ) * Math.min(dt * 1.6, 1)
-
+    // horizontal position stays fixed: only the vertical rides the water
     // gentle deck tilt from the smoothed wave normal, clamped to a few degrees
     const n = wf.normalAt(this.seatX, this.seatZ, t, 3)
-    const maxTilt = 0.06
+    const maxTilt = 0.03
     const targetPitch = THREE.MathUtils.clamp(-n.x * 0.5, -maxTilt, maxTilt)
     const targetRoll = THREE.MathUtils.clamp(n.z * 0.35, -maxTilt, maxTilt)
     this.tiltPitch += (targetPitch - this.tiltPitch) * Math.min(dt * 1.2, 1)
     this.tiltRoll += (targetRoll - this.tiltRoll) * Math.min(dt * 1.2, 1)
 
     const cam = this.camera
-    cam.position.set(this.seatX + this.swayX, this.y + this.eyeHeight, this.seatZ + this.swayZ)
+    cam.position.set(this.seatX, this.y + this.eyeHeight, this.seatZ)
     // yaw 0 faces -X (the beach)
     cam.rotation.order = 'YXZ'
     cam.rotation.y = Math.PI / 2 + this.yaw

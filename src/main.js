@@ -26,6 +26,11 @@ const state = {
   timeOffsetHours: 0, // debug only
   overrides: null, // debug only
 }
+// dev overrides persist across reloads; cleared with curlysim.clearDev()
+try {
+  const dev = JSON.parse(localStorage.getItem('curlysim-dev') || 'null')
+  if (dev) state.overrides = dev
+} catch {}
 
 const waveField = new WaveField()
 waveField.rebuild(state.conditions)
@@ -51,7 +56,7 @@ function applyConditions(cond) {
   surfers.populate(cond, waveField.faceHeight, simDate(), sunAlt)
 }
 
-applyConditions(state.conditions)
+applyConditions(state.overrides ? { ...state.conditions, ...state.overrides } : state.conditions)
 
 function effectiveConditions(cond) {
   if (!state.overrides) return cond
@@ -79,7 +84,25 @@ if (new URLSearchParams(location.search).has('debug')) {
   import('./debug.js').then(({ initDebug }) => initDebug(state, applyConditions, waveField, sky))
 }
 // console access for tinkering (no UI)
-window.curlysim = { state, applyConditions, waveField, sky, pov, ocean, scene, renderer }
+window.curlysim = {
+  state,
+  applyConditions,
+  waveField,
+  sky,
+  pov,
+  ocean,
+  scene,
+  renderer,
+  setDev(o) {
+    localStorage.setItem('curlysim-dev', JSON.stringify(o))
+    state.overrides = o
+    applyConditions({ ...state.conditions, ...o })
+  },
+  clearDev() {
+    localStorage.removeItem('curlysim-dev')
+    state.overrides = null
+  },
+}
 
 function resize() {
   const w = window.innerWidth
@@ -95,6 +118,7 @@ const clock = new THREE.Clock()
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta()
   const t = clock.elapsedTime
+  waveField.update(dt) // advance the wave train
   const env = sky.update(simDate(), state.conditions, pov.camera)
   pov.update(dt, t)
   ocean.update(t, pov.camera, env)
