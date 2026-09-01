@@ -153,9 +153,9 @@ export class Ocean {
       return m
     }
     this.farStrips = [
-      strip(500, 2880, -2600, 2300, 150, 170), // out to sea
-      strip(-20, 500, -2900, -640, 60, 140), // north along the beach
-      strip(-20, 500, 120, 2300, 60, 130), // south along the beach
+      strip(500, 2880, -2600, 2300, 240, 260), // out to sea (smooth swell)
+      strip(-20, 500, -2900, -640, 130, 420), // north: carries visible surf
+      strip(-20, 500, 120, 2300, 130, 320), // south: carries visible surf
     ]
     this.syncWaves()
   }
