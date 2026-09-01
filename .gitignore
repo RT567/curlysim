@@ -1,5 +1,4 @@
-
-# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-.beads-credential-key
+node_modules
+dist
+.beads/embeddeddolt
+.beads/last-touched
