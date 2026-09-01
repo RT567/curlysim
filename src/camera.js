@@ -16,7 +16,7 @@ export class POVCamera {
     this.camera = new THREE.PerspectiveCamera(72, 1, 0.1, 12000)
 
     this.seatZ = BANK_PEAK_Z
-    this.seatX = Math.max(waveField.xBreak - 55, 25)
+    this.seatX = this._defaultSeat()
     this.eyeHeight = EYE_HEIGHT // debug can lift this for a drone view
     this.userMoved = false
     this._keys = new Set()
@@ -42,10 +42,18 @@ export class POVCamera {
     this._bindPointer(dom)
   }
 
-  // sit just inside the break line — sets detonate right in front of you.
+  // sit just inside the break line — sets detonate right in front of you —
+  // but never in water shallower than a sitting surfer needs (small days
+  // would otherwise seat you in the shore wash looking at the dunes).
   // Skipped once the user has paddled somewhere themselves.
+  _defaultSeat() {
+    let x = Math.max(this.waveField.xBreak - 55, 25)
+    while (this.waveField.depthAt(x, BANK_PEAK_Z) < 1.3 && x < 470) x += 5
+    return x
+  }
+
   reseat() {
-    if (!this.userMoved) this.seatX = Math.max(this.waveField.xBreak - 55, 25)
+    if (!this.userMoved) this.seatX = this._defaultSeat()
   }
 
   _move(dt) {
