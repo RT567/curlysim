@@ -35,7 +35,7 @@ const BAR_H = 2.8
 const BAR_X = 165
 const BAR_W = 30
 const SPAWN_X = 680 // waves are born this far out
-const DIE_X = 4
+const DIE_X = -14 // waves run up the beach as swash before dying
 
 export class WaveField {
   constructor() {
@@ -192,7 +192,8 @@ export class WaveField {
   //   REFORMS automatically when it runs into deeper water (channel/trough).
   surfaceAt(x, z) {
     const d = this.depthAt(x, z)
-    const shore = smoothstep(-2, 6, x)
+    // waves persist onto the sand (swash) and fade over the last berm metres
+    const shore = smoothstep(-18, -2, x)
     const sPos = x * this.meanDir.x + z * this.meanDir.z
     // bottom slope the wave feels, along travel: depth behind minus depth
     // ahead over 16 m (positive = shoaling)
@@ -261,7 +262,11 @@ export class WaveField {
       const trail = xi < 0 ? Math.exp(-Math.pow(xi / 0.55, 2)) : 0
       foam += brk * Math.max(kern, 0.75 * trail)
     }
-    return { y: y * shore, foam: Math.min(foam, 1) * shore, leanX, leanZ }
+    // waterline: a thin sheet tucked just under the beach ramp (capped at
+    // ankle height so it can never surface through low terrain inland);
+    // swash pulses lift it above the sand so the water's edge runs up/recedes
+    const swashBed = Math.min(Math.max(-x, 0) * 0.035, 0.22) - 0.06
+    return { y: Math.max(y * shore, swashBed), foam: Math.min(foam, 1) * shore, leanX, leanZ }
   }
 
   heightAt(x, z, _t) {
@@ -355,7 +360,7 @@ export const WAVE_GLSL = /* glsl */ `
   vec4 surf(vec2 p) {
     gPhase = 0.0;
     float d = depthAt(p);
-    float shore = smoothstep(-2.0, 6.0, p.x);
+    float shore = smoothstep(-18.0, -2.0, p.x);
     float sPos = dot(p, uSwellDir);
     // bottom slope along travel: depth behind minus ahead (+ = shoaling)
     float slope = clamp(
@@ -408,6 +413,7 @@ export const WAVE_GLSL = /* glsl */ `
       float trail = xi < 0.0 ? exp(-pow(xi / 0.55, 2.0)) : 0.0;
       foam += brk * max(kern, 0.75 * trail);
     }
-    return vec4(lean.x, y * shore, lean.y, min(foam, 1.0) * shore);
+    float swashBed = min(max(-p.x, 0.0) * 0.035, 0.22) - 0.06;
+    return vec4(lean.x, max(y * shore, swashBed), lean.y, min(foam, 1.0) * shore);
   }
 `
