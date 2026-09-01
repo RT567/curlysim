@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "curlysim",
+  "project_id": "b9f0afe1-4e2a-4ede-acbf-389533d76798"
+}
