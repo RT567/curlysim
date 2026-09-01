@@ -37,8 +37,9 @@ const FRAG = /* glsl */ `
   varying float vFoam;
 
   void main() {
+    // derivative normal faces the viewer, so overhanging lip undersides get a
+    // real orientation instead of being flipped upright
     vec3 n = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
-    if (n.y < 0.0) n = -n;
     float x = vWorldPos.x;
     float d = depthAt(vWorldPos.xz);
 
@@ -51,6 +52,10 @@ const FRAG = /* glsl */ `
     // wave-face tint: rising front faces go a touch greener/darker
     float ht = clamp(vWorldPos.y / max(0.6 * d, 0.3), 0.0, 1.0);
     base *= 0.92 + 0.16 * ht;
+
+    // underside of a thrown lip: dark shadowed emerald ceiling
+    float under = smoothstep(0.05, -0.2, n.y);
+    base = mix(base, base * vec3(0.45, 0.72, 0.66), under);
 
     // foam DISABLED for now (wave-train foam, shore wash, whitecaps all off)
     float foam = 0.0;
@@ -94,6 +99,7 @@ export class Ocean {
     this.uniforms = {
       uTrain: { value: waveField.uT }, // live reference: CPU writes, GPU reads
       uSwellDir: { value: new THREE.Vector2(-1, 0) },
+      uWindU: { value: 0 },
       uWhitecaps: { value: 0 },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunColor: { value: new THREE.Color(0xffffff) },
@@ -132,6 +138,7 @@ export class Ocean {
 
   syncWaves() {
     this.uniforms.uSwellDir.value.set(this.waveField.meanDir.x, this.waveField.meanDir.z)
+    this.uniforms.uWindU.value = this.waveField.windU || 0
   }
 
   update(t, camera, env) {

@@ -16,13 +16,20 @@ export class POVCamera {
     this.camera = new THREE.PerspectiveCamera(72, 1, 0.1, 12000)
 
     this.seatZ = BANK_PEAK_Z
-    this.seatX = Math.max(waveField.xBreak - 20, 30)
+    this.seatX = Math.max(waveField.xBreak - 55, 25)
     this.eyeHeight = EYE_HEIGHT // debug can lift this for a drone view
+    this.userMoved = false
+    this._keys = new Set()
+    window.addEventListener('keydown', (e) => {
+      if (e.key.startsWith('Arrow') || 'wasdWASD'.includes(e.key)) {
+        this._keys.add(e.key.toLowerCase())
+        e.preventDefault()
+      }
+    })
+    window.addEventListener('keyup', (e) => this._keys.delete(e.key.toLowerCase()))
 
     this.yaw = 0 // 0 = facing the beach (-X)
     this.pitch = -0.02
-    this.yawVel = 0
-    this.pitchVel = 0
 
     // spring state
     this.y = 0
@@ -35,9 +42,31 @@ export class POVCamera {
     this._bindPointer(dom)
   }
 
-  // sit just inside the break line — sets detonate right in front of you
+  // sit just inside the break line — sets detonate right in front of you.
+  // Skipped once the user has paddled somewhere themselves.
   reseat() {
-    this.seatX = Math.max(this.waveField.xBreak - 20, 30)
+    if (!this.userMoved) this.seatX = Math.max(this.waveField.xBreak - 55, 25)
+  }
+
+  _move(dt) {
+    const k = this._keys
+    if (k.size === 0) return
+    let fwd = 0
+    let str = 0
+    if (k.has('arrowup') || k.has('w')) fwd += 1
+    if (k.has('arrowdown') || k.has('s')) fwd -= 1
+    if (k.has('arrowright') || k.has('d')) str += 1
+    if (k.has('arrowleft') || k.has('a')) str -= 1
+    if (fwd === 0 && str === 0) return
+    const sp = 18 * dt
+    // view-relative: forward follows where you're looking
+    const lookX = -Math.cos(this.yaw)
+    const lookZ = Math.sin(this.yaw)
+    this.seatX += (lookX * fwd - lookZ * str) * sp
+    this.seatZ += (lookZ * fwd + lookX * str) * sp
+    this.seatX = THREE.MathUtils.clamp(this.seatX, 6, 650)
+    this.seatZ = THREE.MathUtils.clamp(this.seatZ, -900, 400)
+    this.userMoved = true
   }
 
   _bindPointer(dom) {
@@ -72,6 +101,7 @@ export class POVCamera {
 
   update(dt, t) {
     dt = Math.min(dt, 0.05)
+    this._move(dt)
     const wf = this.waveField
     const targetY = wf.heightAt(this.seatX, this.seatZ, t)
     // tight low-pass: smooths the chop jitter but never lets the eye lag a

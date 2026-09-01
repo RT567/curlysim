@@ -110,9 +110,10 @@ export class Surfers {
         const peak = BANK_PEAK_Z + (((Math.random() * 3) | 0) - 1) * BANK_WAVELENGTH
         z = peak + THREE.MathUtils.randFloatSpread(70)
       }
-      const x = xb + 8 + Math.random() * 30
+      // straddle the takeoff zone just inside the break, like the camera
+      const x = xb - 45 + Math.random() * 35
       // don't sit in our lap
-      if (Math.abs(z - BANK_PEAK_Z) < 14 && Math.abs(x - (xb + 42)) < 14) z += 20
+      if (Math.abs(z - BANK_PEAK_Z) < 14 && Math.abs(x - (xb - 35)) < 14) z += 20
       s.userData.seat = { x, z }
       s.rotation.y = Math.PI / 2 + THREE.MathUtils.randFloatSpread(1.4)
     }
