@@ -81,7 +81,7 @@ setInterval(() => {
 
 // debug panel behind ?debug — the public page stays clean
 if (new URLSearchParams(location.search).has('debug')) {
-  import('./debug.js').then(({ initDebug }) => initDebug(state, applyConditions, waveField, sky))
+  import('./debug.js').then(({ initDebug }) => initDebug(state, applyConditions, waveField, sky, ocean))
 }
 // console access for tinkering (no UI)
 window.curlysim = {

@@ -95,6 +95,7 @@ export class WaveField {
       H0: Math.max(this.hs * f * 1.3, 0.05), // crest height above still water
       L0: 1.56 * T * T,
       c0: 1.56 * T,
+      E: 1, // energy factor: decays while breaking, so reformed waves are smaller
     }
   }
 
@@ -119,6 +120,12 @@ export class WaveField {
       // queue behind the wave ahead — crests never overtake and merge
       const ahead = this.waves[i - 1]
       if (ahead) w.s = Math.min(w.s, ahead.s - 0.3 * w.L0)
+      // breaking dissipates energy (20-60% per plunge): while this wave is
+      // over its depth limit, bleed height so it reforms SMALLER in the trough
+      const green = Math.min(Math.pow(D_REF / Math.max(d, 0.4), 0.25), 2.2)
+      if ((1.2 * w.H0 * w.E * green) / (0.9 * d) > 1) {
+        w.E = Math.max(w.E * (1 - 0.45 * dt), 0.3)
+      }
       if (this._xAt(w.s) < DIE_X) this.waves.splice(i, 1)
       else furthestOut = Math.max(furthestOut, x)
     }
@@ -161,7 +168,7 @@ export class WaveField {
     for (let i = 0; i < n; i++) {
       const w = this.waves[i]
       this.uT[i * 4] = w.s
-      this.uT[i * 4 + 1] = w.H0
+      this.uT[i * 4 + 1] = w.H0 * w.E // shader sees the dissipated height
       this.uT[i * 4 + 2] = w.L0
       this.uT[i * 4 + 3] = w.c0
     }
@@ -203,13 +210,18 @@ export class WaveField {
     const windT = Math.tanh(this.windU / 8)
     let y = 0
     let foam = 0
+    let leanX = 0
+    let leanZ = 0
     for (const w of this.waves) {
       const c = Math.min(Math.sqrt(G * d), w.c0)
       const T = w.L0 / w.c0
-      // rendered wavelength floors at 15% of deep-water L so shallow waves
-      // stay wide mounds instead of collapsing into slivers
-      const L = Math.max(c * T, 0.15 * w.L0, 6)
-      let H = w.H0 * Math.min(Math.pow(D_REF / Math.max(d, 0.4), 0.25), 2.2)
+      // rendered wavelength floors at 25% of deep-water L so faces stay wide
+      // enough for both realism and the mesh to resolve
+      const L = Math.max(c * T, 0.25 * w.L0, 6)
+      // cheap distance check FIRST — most waves are nowhere near this point
+      const xi = (sPos - w.s) / L
+      if (xi > 1.6 || xi < -1.6) continue
+      let H = w.H0 * w.E * Math.min(Math.pow(D_REF / Math.max(d, 0.4), 0.25), 2.2)
       const hFull = 1.2 * H
       // Weggel breaker index, wind-shifted (offshore holds the wave up)
       const gamma = Math.min(Math.max(wB - (wA * hFull) / (G * T * T), 0.6), 1.5) * (1 + 0.15 * windT)
@@ -218,11 +230,14 @@ export class WaveField {
       // Iribarren plunge intensity: spill at xi<=0.4, slab throw at xi>=1.2
       const xiB = (slope / Math.sqrt(hFull / w.L0)) * (1 + 0.25 * windT)
       const P = Math.min(Math.max((xiB - 0.4) / 0.8, 0), 1)
-      H = H * (1 - brk) + 0.4 * d * brk
-      const xi = (sPos - w.s) / L
-      if (xi > 1.6 || xi < -1.6) continue
-      const wf = 0.12 * (1.05 - 0.5 * Math.min(steep, 1))
-      const wb = 0.2
+      // soft-knee depth cap: height stays continuous through breaking; the
+      // per-wave energy decay is what actually shrinks the bore over time
+      const hCap = 0.55 * gamma * d
+      if (H > hCap) H = hCap + (H - hCap) * 0.25
+      // broken bore is a compact roll, not a wavelength-wide tent
+      const wScale = 1 - 0.6 * brk
+      const wf = 0.12 * (1.0 - 0.35 * Math.min(steep, 1)) * wScale
+      const wb = 0.2 * wScale
       const u = xi > 0 ? xi / wf : xi / wb
       const kern = Math.exp(-u * u)
       const yw = H * kern
@@ -233,7 +248,12 @@ export class WaveField {
       if (lip > 0) {
         const theta =
           (0.55 * smoothstep(0.8, 1.0, steep) * (0.3 + 0.7 * P) + (0.7 + 0.9 * P) * brk) * frontGate
-        y += yw - lip * (1 - Math.cos(theta))
+        // progressive rotation: angle grows up the lip, so the face bends
+        // into a concave arc instead of shearing into a flat plane
+        const ang = theta * Math.min(lip / (0.38 * H), 1)
+        y += yw - lip * (1 - Math.cos(ang))
+        leanX += this.meanDir.x * lip * Math.sin(ang)
+        leanZ += this.meanDir.z * lip * Math.sin(ang)
       } else {
         y += yw
       }
@@ -241,7 +261,7 @@ export class WaveField {
       const trail = xi < 0 ? Math.exp(-Math.pow(xi / 0.55, 2)) : 0
       foam += brk * Math.max(kern, 0.75 * trail)
     }
-    return { y: y * shore, foam: Math.min(foam, 1) * shore }
+    return { y: y * shore, foam: Math.min(foam, 1) * shore, leanX, leanZ }
   }
 
   heightAt(x, z, _t) {
@@ -331,7 +351,9 @@ export const WAVE_GLSL = /* glsl */ `
 
   // xyz = displacement (xz: crest lean), w = foam
   // Twin of waves.js surfaceAt — keep numerically identical.
+  float gPhase; // debug: max steep of any wave present at this point
   vec4 surf(vec2 p) {
+    gPhase = 0.0;
     float d = depthAt(p);
     float shore = smoothstep(-2.0, 6.0, p.x);
     float sPos = dot(p, uSwellDir);
@@ -350,7 +372,10 @@ export const WAVE_GLSL = /* glsl */ `
       if (W.y < 1e-4) continue;
       float c = min(sqrt(${G} * d), W.w);
       float T = W.z / W.w;
-      float L = max(max(c * T, 0.15 * W.z), 6.0);
+      float L = max(max(c * T, 0.25 * W.z), 6.0);
+      // cheap distance check FIRST — skip waves nowhere near this vertex
+      float xi = (sPos - W.x) / L;
+      if (abs(xi) > 1.6) continue;
       float H = W.y * min(pow(${D_REF.toFixed(1)} / max(d, 0.4), 0.25), 2.2);
       float hFull = 1.2 * H;
       float gamma = clamp(wB - wA * hFull / (${G} * T * T), 0.6, 1.5) * (1.0 + 0.15 * windT);
@@ -358,23 +383,25 @@ export const WAVE_GLSL = /* glsl */ `
       float brk = smoothstep(0.95, 1.25, steep);
       float xiB = (slope / sqrt(hFull / W.z)) * (1.0 + 0.25 * windT);
       float P = clamp((xiB - 0.4) / 0.8, 0.0, 1.0);
-      H = mix(H, 0.4 * d, brk);
-      float xi = (sPos - W.x) / L;
-      if (abs(xi) > 1.6) continue;
-      float wf = 0.12 * (1.05 - 0.5 * min(steep, 1.0));
-      float wb = 0.2;
+      float hCap = 0.55 * gamma * d;
+      if (H > hCap) H = hCap + (H - hCap) * 0.25;
+      float wScale = 1.0 - 0.6 * brk;
+      float wf = 0.12 * (1.0 - 0.35 * min(steep, 1.0)) * wScale;
+      float wb = 0.2 * wScale;
       float u = xi > 0.0 ? xi / wf : xi / wb;
       float kern = exp(-u * u);
       float yw = H * kern;
+      if (kern > 0.25) gPhase = max(gPhase, steep);
       float frontGate = smoothstep(-0.3, 0.1, xi);
       float lip = yw - 0.62 * H;
       if (lip > 0.0) {
         float theta = (0.55 * smoothstep(0.8, 1.0, steep) * (0.3 + 0.7 * P)
                      + (0.7 + 0.9 * P) * brk) * frontGate;
-        y += yw - lip * (1.0 - cos(theta));
-        // pure rotation: forward = lip*sin, down = lip*(1-cos) — a true curl,
-        // never a flat forward ramp
-        lean += uSwellDir * lip * sin(theta);
+        // progressive rotation: angle grows up the lip -> concave arc face,
+        // tip curls hardest; never a flat shear plane
+        float ang = theta * min(lip / (0.38 * H), 1.0);
+        y += yw - lip * (1.0 - cos(ang));
+        lean += uSwellDir * lip * sin(ang);
       } else {
         y += yw;
       }

@@ -3,7 +3,7 @@
 
 import GUI from 'lil-gui'
 
-export function initDebug(state, applyConditions, waveField, sky) {
+export function initDebug(state, applyConditions, waveField, sky, ocean) {
   const gui = new GUI({ title: 'curlysim debug' })
   const o = {
     live: true,
@@ -46,6 +46,15 @@ export function initDebug(state, applyConditions, waveField, sky) {
     .onChange((v) => {
       state.timeOffsetHours = v
     })
+  if (ocean) {
+    const p = { phaseColors: ocean.uniforms.uPhaseDebug.value > 0.5 }
+    gui
+      .add(p, 'phaseColors')
+      .name('wave phase colors')
+      .onChange((v) => {
+        ocean.uniforms.uPhaseDebug.value = v ? 1 : 0
+      })
+  }
 
   const info = {
     get faceHeight() {

@@ -10,12 +10,14 @@ const VERT = /* glsl */ `
   ${WAVE_GLSL}
   varying vec3 vWorldPos;
   varying float vFoam;
+  varying float vPhase;
   void main() {
     vec2 p = position.xz;
     vec4 sf = surf(p);
     vec3 wp = vec3(p.x + sf.x, position.y + sf.y, p.y + sf.z);
     vWorldPos = wp;
     vFoam = sf.w;
+    vPhase = gPhase;
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
   }
 `
@@ -33,8 +35,10 @@ const FRAG = /* glsl */ `
   uniform vec3 uFogColor;
   uniform float uFogDensity;
   uniform vec3 uCamPos;
+  uniform float uPhaseDebug;
   varying vec3 vWorldPos;
   varying float vFoam;
+  varying float vPhase;
 
   void main() {
     // derivative normal faces the viewer, so overhanging lip undersides get a
@@ -60,6 +64,15 @@ const FRAG = /* glsl */ `
     // foam DISABLED for now (wave-train foam, shore wash, whitecaps all off)
     float foam = 0.0;
     base = mix(base, uFoamColor, foam);
+
+    // phase debug tint: yellow = standing, orange = breaking, red = bore
+    if (uPhaseDebug > 0.5) {
+      vec3 tint = base;
+      tint = mix(tint, vec3(0.95, 0.85, 0.2), smoothstep(0.7, 0.8, vPhase) * (1.0 - smoothstep(0.95, 1.0, vPhase)));
+      tint = mix(tint, vec3(0.95, 0.5, 0.15), smoothstep(0.95, 1.0, vPhase) * (1.0 - smoothstep(1.25, 1.35, vPhase)));
+      tint = mix(tint, vec3(0.85, 0.15, 0.15), smoothstep(1.25, 1.4, vPhase));
+      base = mix(base, tint, 0.65);
+    }
 
     float diff = max(dot(ns, uSunDir), 0.0);
     vec3 amb = mix(uGroundAmbient, uSkyAmbient, ns.y * 0.5 + 0.5);
@@ -100,6 +113,7 @@ export class Ocean {
       uTrain: { value: waveField.uT }, // live reference: CPU writes, GPU reads
       uSwellDir: { value: new THREE.Vector2(-1, 0) },
       uWindU: { value: 0 },
+      uPhaseDebug: { value: 0 }, // wave-phase tint; toggled from the ?debug panel
       uWhitecaps: { value: 0 },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunColor: { value: new THREE.Color(0xffffff) },
@@ -119,20 +133,30 @@ export class Ocean {
       uniforms: this.uniforms,
     })
 
-    // near field: fine facets around the lineup
+    // near field: fine facets around the lineup (x -20..500, z -640..120)
     const near = new THREE.PlaneGeometry(520, 760, 460, 640)
     near.rotateX(-Math.PI / 2)
-    near.translate(240, 0, BANK_PEAK_Z + 40) // x: -20..500, z: -640..120
-    // far field: coarse, slightly sunken so the near tier always wins overlaps
-    const far = new THREE.PlaneGeometry(2900, 5200, 180, 230)
-    far.rotateX(-Math.PI / 2)
-    far.translate(1430, -0.35, BANK_PEAK_Z)
-
+    near.translate(240, 0, BANK_PEAK_Z + 40)
     this.meshNear = new THREE.Mesh(near, this.material)
-    this.meshFar = new THREE.Mesh(far, this.material)
     this.meshNear.frustumCulled = false
-    this.meshFar.frustumCulled = false
-    scene.add(this.meshNear, this.meshFar)
+    scene.add(this.meshNear)
+
+    // far field: coarse strips forming a FRAME around the near tier — they
+    // never overlap it, so coarse triangles can never poke through steep faces
+    const strip = (x0, x1, z0, z1, nx, nz) => {
+      const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0, nx, nz)
+      g.rotateX(-Math.PI / 2)
+      g.translate((x0 + x1) / 2, -0.08, (z0 + z1) / 2)
+      const m = new THREE.Mesh(g, this.material)
+      m.frustumCulled = false
+      scene.add(m)
+      return m
+    }
+    this.farStrips = [
+      strip(500, 2880, -2600, 2300, 150, 170), // out to sea
+      strip(-20, 500, -2900, -640, 60, 140), // north along the beach
+      strip(-20, 500, 120, 2300, 60, 130), // south along the beach
+    ]
     this.syncWaves()
   }
 

@@ -64,8 +64,9 @@ export class POVCamera {
     const lookZ = Math.sin(this.yaw)
     this.seatX += (lookX * fwd - lookZ * str) * sp
     this.seatZ += (lookZ * fwd + lookX * str) * sp
-    this.seatX = THREE.MathUtils.clamp(this.seatX, 6, 650)
-    this.seatZ = THREE.MathUtils.clamp(this.seatZ, -900, 400)
+    // stay inside the fine-mesh near tier (x -20..500, z -640..120)
+    this.seatX = THREE.MathUtils.clamp(this.seatX, 6, 470)
+    this.seatZ = THREE.MathUtils.clamp(this.seatZ, -610, 90)
     this.userMoved = true
   }
 
