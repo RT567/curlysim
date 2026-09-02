@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { WaveField } from './waves.js'
 import { Ocean } from './ocean.js'
 import { buildTerrain } from './terrain.js'
+import { Trees } from './trees.js'
 import { SkySystem } from './sky.js'
 import { Weather } from './weather.js'
 import { Surfers } from './surfers.js'
@@ -37,6 +38,7 @@ waveField.rebuild(state.conditions)
 
 const ocean = new Ocean(scene, waveField)
 buildTerrain(scene)
+const trees = new Trees(scene)
 const sky = new SkySystem(scene)
 const weather = new Weather(scene)
 const surfers = new Surfers(scene, waveField)
@@ -52,6 +54,7 @@ function applyConditions(cond) {
   ocean.syncWaves()
   pov.reseat()
   weather.setConditions(cond)
+  trees.setConditions(cond)
   const sunAlt = sky.env.sunAltitudeDeg
   surfers.populate(cond, waveField.faceHeight, simDate(), sunAlt)
 }
@@ -123,6 +126,7 @@ renderer.setAnimationLoop(() => {
   pov.update(dt, t)
   ocean.update(t, pov.camera, env)
   weather.update(dt, t, pov.camera)
+  trees.update(t)
   surfers.update(t)
   renderer.render(scene, pov.camera)
 })

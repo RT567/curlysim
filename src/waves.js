@@ -59,7 +59,9 @@ export class WaveField {
         dir: primary.dir,
       }
     }
-    this.hs = primary ? primary.height : 0.3
+    // significant height: decomposed-swell merge, but never below the model's
+    // total sea state (the model splits conservatively vs the real buoy)
+    this.hs = Math.max(primary ? primary.height : 0.3, (conditions.totalWave ?? 0) * 0.95)
     this.tp = primary ? Math.min(Math.max(primary.period, 4), 18) : 8
     this.meanDir = fromDirToVec(primary ? primary.dir : 135)
     // signed offshore wind component (m/s, + = offshore): shifts the breaker
@@ -79,20 +81,22 @@ export class WaveField {
   }
 
   _makeWave(xStart) {
-    // set/lull group sequence: ~3 solid waves out of every 11
+    // Realistic Rayleigh-like height statistics around Hs, with grouping:
+    // ordinary waves run 0.45-0.75 Hs; every ~11th-13th wave starts a set of
+    // 3 at 0.95-1.5 Hs (real H_1/10..Hmax territory). Full trough-to-crest
+    // height = 1.2 * H0, so H0 = Hs*f/1.2 makes an f=1 wave exactly Hs-sized.
     const g = this.groupN % 11
     this.groupN++
-    // every wave dealt set-sized for now (lull/set variation parked)
     let f
     if (g === 8 || g === 9 || g === 10) {
-      f = [1.1, 1.35, 1.15][g - 8] * (0.92 + Math.random() * 0.16)
+      f = [1.05, 1.3, 1.1][g - 8] * (0.9 + Math.random() * 0.2)
     } else {
-      f = 1.0 + Math.random() * 0.2
+      f = 0.45 + Math.random() * 0.3
     }
     const T = this.tp * (0.95 + Math.random() * 0.1)
     return {
       s: this._sAt(xStart),
-      H0: Math.max(this.hs * f * 1.3, 0.05), // crest height above still water
+      H0: Math.max((this.hs * f) / 1.2, 0.05), // crest height above still water
       L0: 1.56 * T * T,
       c0: 1.56 * T,
       E: 1, // energy factor: decays while breaking, so reformed waves are smaller
@@ -140,9 +144,9 @@ export class WaveField {
   }
 
   _computeBreak() {
-    // break line over the bank for seating/crowds: solve where a typical
-    // dealt wave's FULL height (1.2 x crest, crest = hs*1.15*1.3) meets 0.78 d
-    const hFull = this.hs * 1.15 * 1.3 * 1.2
+    // break line over the bank for seating/crowds: where a SET wave
+    // (full height ~1.3 Hs) meets the depth limit — surfers sit for the sets
+    const hFull = this.hs * 1.3
     let d = Math.max(hFull / BREAKER_INDEX, 0.5)
     for (let i = 0; i < 3; i++) {
       const green = Math.min(Math.pow(D_REF / Math.max(d, 0.4), 0.25), 2.2)

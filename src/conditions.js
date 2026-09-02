@@ -23,6 +23,7 @@ export const DEFAULT_CONDITIONS = {
     { height: 1.2, period: 10, dir: 140 },
     { height: 0.3, period: 6, dir: 90 },
   ],
+  totalWave: 1.3,
   windKn: 7,
   windDirFrom: 300,
   gustKn: 10,
@@ -61,6 +62,7 @@ export async function fetchConditions() {
 
   return {
     swells,
+    totalWave: m.wave_height,
     windWave: { height: m.wind_wave_height, period: m.wind_wave_period, dir: m.wind_wave_direction },
     windKn: w.wind_speed_10m,
     windDirFrom: w.wind_direction_10m,

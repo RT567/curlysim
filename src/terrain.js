@@ -213,30 +213,5 @@ export function buildTerrain(scene) {
   houses.count = count
   scene.add(houses)
 
-  // Norfolk pines along the dunes and park
-  const pineGeo = new THREE.ConeGeometry(2.4, 10, 6)
-  const pineMat = new THREE.MeshStandardMaterial({ color: 0x3e6b4a, roughness: 1, flatShading: true })
-  const pines = new THREE.InstancedMesh(pineGeo, pineMat, 30)
-  let pc = 0
-  guard = 0
-  while (pc < 30 && guard++ < 400) {
-    const z = THREE.MathUtils.randFloatSpread(1500) - 50
-    if (Math.abs(z - LAGOON_Z) < 90) continue
-    const { shift, h } = headlandAt(z)
-    if (h > 15) continue
-    const inland = 45 + Math.random() * 90
-    const x = shift - inland
-    const y = terrainHeight(x, z)
-    if (y < 0.5) continue
-    const s = 0.8 + Math.random() * 0.7
-    mtx.compose(
-      new THREE.Vector3(x, y + 5 * s, z),
-      q.identity(),
-      new THREE.Vector3(s, s, s)
-    )
-    pines.setMatrixAt(pc, mtx)
-    pc++
-  }
-  pines.count = pc
-  scene.add(pines)
+  // (pines live in trees.js now — they sway with the wind)
 }
