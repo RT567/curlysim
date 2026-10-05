@@ -127,9 +127,13 @@ export class WaveField {
     // sets) and weakly in local wind sea. kappa per Kimura's 2-D Rayleigh model: ~0.57 at 7 s (rho_HH 0.3),
     // ~0.70 mixed (0.45), 0.80-0.85 for groundswell (0.6-0.7); field rho_HH 0.2-0.65 (CEM II-1, Rodriguez).
     this.grp = { re: randn(), im: randn(), kappa: Math.min(Math.max(0.57 + (this.tp - 7) * 0.05, 0.57), 0.85) }
-    const L0 = 1.56 * this.tp * this.tp
-    for (let x = 30; x < SPAWN_X; x += L0 * (0.9 + Math.random() * 0.2)) {
-      this.waves.push(this._makeWave(x))
+    // crests a local wavelength apart at the carrier speed, each gap set by that wave's own period
+    // (see update: the gap behind a crest is c(tp) * T_wave, so period scatter shows up as uneven spacing)
+    this._next = this._makeWave(SPAWN_X)
+    for (let x = 30; x < SPAWN_X; ) {
+      const w = this._makeWave(x)
+      this.waves.push(w) // index 0 is nearest the shore, as update() expects
+      x += phaseSpeed(1.56 * this.tp, this.tp, this.depthAt(x, BANK_PEAK_Z)) * (w.L0 / w.c0)
     }
     this._pack()
   }
@@ -170,11 +174,16 @@ export class WaveField {
   update(dt) {
     dt = Math.min(dt, 0.1)
     let furthestOut = -1
+    const c0tp = 1.56 * this.tp
     for (let i = this.waves.length - 1; i >= 0; i--) {
       const w = this.waves[i]
       const x = this._xAt(w.s)
       const d = this.depthAt(x, BANK_PEAK_Z)
-      const c = phaseSpeed(w.c0, w.L0 / w.c0, d)
+      // every crest travels at the carrier (peak-period) phase speed: a real sea moves together, and the
+      // spread of individual periods shows up as uneven crest spacing, not as crests catching each other up
+      // (moving each crest at its own period's speed bunched 3-4 waves nose to tail). Its own period still
+      // sets its wavelength and shape.
+      const c = phaseSpeed(c0tp, this.tp, d)
       w.s += c * dt
       // queue behind the wave ahead so crests never overtake and merge. The gap
       // is a fraction of the LOCAL wavelength c*T: crests bunch up naturally in
@@ -197,11 +206,16 @@ export class WaveField {
       if (this._xAt(w.s) < DIE_X) this.waves.splice(i, 1)
       else furthestOut = Math.max(furthestOut, x)
     }
-    // spawn the next wave one wavelength behind the last one
+    // spawn the next wave once the last one is a period's travel ahead: its own period, at the carrier speed
     if (this.waves.length < MAX_TRAIN) {
-      const L0 = 1.56 * this.tp * this.tp
-      if (furthestOut < SPAWN_X - L0 * (0.9 + 0.2 * Math.random())) {
-        this.waves.push(this._makeWave(SPAWN_X))
+      const next = this._next || (this._next = this._makeWave(SPAWN_X))
+      // (at the LOCAL carrier speed: the spawn line is only ~10 m deep, so a deep-water gap made crests
+      // arrive up to 2.5x the period apart for long-period swell)
+      const cSpawn = phaseSpeed(c0tp, this.tp, this.depthAt(SPAWN_X, BANK_PEAK_Z))
+      if (furthestOut < SPAWN_X - cSpawn * (next.L0 / next.c0)) {
+        next.s = this._sAt(SPAWN_X)
+        this.waves.push(next)
+        this._next = this._makeWave(SPAWN_X)
       }
     }
     this._pack()
