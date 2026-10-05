@@ -41,9 +41,9 @@ export function fromDirToVec(fromDeg) {
 // seaward (shorelineX). Everything cross-shore is measured from that local
 // shoreline, xs = x - shorelineX(z) (+ = seaward), and the ground elevation
 // is the single function beachElevation(xs), the same at every z:
-//   xs >= 0  (sea floor):  -(DEAN_A (xs + X0)^(2/3) - DEAN_A X0^(2/3))   (Dean profile, see DEAN_A)
+//   xs >= 0  (sea floor):  measured Curl Curl depths (bedDepth, see BED_X / BED_D)
 //   xs <  0  (beach face): BERM_H * (1 - exp(FACE_SLOPE*xs / BERM_H))
-// Smooth (C1) through the waterline (slope FACE_SLOPE both sides), monotonic, 0 exactly at the shoreline.
+// Monotonic, 0 exactly at the shoreline.
 // Users: waves.js depthAt + its GLSL twin (wave physics, onset/lineup search),
 // terrain.js terrainHeight (visible beach + sea floor; dunes, hills and
 // headland cliffs are added on top only inland of the waterline).
@@ -70,15 +70,27 @@ export const NORTH_SEAT_LIMIT_Z = NORTH_WALL_Z + 115
 // shoreline out to its rocks (~z 300): the far end of the surfable beach
 export const SOUTH_SEAT_LIMIT_Z = HEADLANDS[0].z - 1.75 * HEADLANDS[0].sz
 
-// Sea floor: Dean's equilibrium profile h = A x^(2/3) for the northern beaches' medium sand (d50 ~0.35 mm,
-// fall speed ~4.6 cm/s -> A = 0.067 ws^0.44 = 0.13 m^(1/3); Dean 1987), shifted by DEAN_X0 so its slope
-// at the waterline is a 1:10 beach face instead of infinite. Depth 1.7 m at 50 m, 2.7 at 100, 4.4 at 200,
-// 7.0 at 400, 11.2 at 800 m out.
-export const DEAN_A = 0.13
-export const FACE_SLOPE = 1 / 10
-const DEAN_X0 = Math.pow(((2 / 3) * DEAN_A) / FACE_SLOPE, 3) // where the Dean slope equals FACE_SLOPE
-const DEAN_H0 = DEAN_A * Math.pow(DEAN_X0, 2 / 3)
+// Sea floor: MEASURED. NSW Marine LiDAR Topo-Bathy 2018 (NSW OEH / Fugro, 5 m grid, AHD ~ MSL, +-0.3-0.5 m),
+// sampled every 5 m along three shore-normal transects at Curl Curl (north, mid, south; bearings 128/122/
+// 115 deg) and averaged: depth (m) at distance (m) seaward of the 0 m AHD shoreline. Cross-checked against
+// the ShoreShop2.0 benchmark grid for the same beach. Very gentle inside (1:48 to 3 m depth at ~145 m: a
+// terrace, which is why waves break a long way out on bigger days), ~1:50 beyond, the 10 m contour at
+// ~495 m. Smooth and identical along the beach (bars and rips come later); piecewise-linear between knots,
+// 1:55 past the last one. The beach face above the waterline is 1:13 (ShoreShop: 0.06-0.09).
+export const BED_X = [0, 25, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800]
+export const BED_D = [0, 0.87, 1.57, 1.97, 2.43, 3.1, 3.87, 4.57, 5.9, 8.3, 10.17, 11.93, 13.7, 15.47]
+const BED_TAIL = 1 / 55
+export const FACE_SLOPE = 1 / 13
 export const BERM_H = 1.8 // m: beach face levels off at this height
+
+function bedDepth(xs) {
+  const n = BED_X.length
+  if (xs >= BED_X[n - 1]) return BED_D[n - 1] + (xs - BED_X[n - 1]) * BED_TAIL
+  let i = 1
+  while (BED_X[i] < xs) i++
+  const t = (xs - BED_X[i - 1]) / (BED_X[i] - BED_X[i - 1])
+  return BED_D[i - 1] + t * (BED_D[i] - BED_D[i - 1])
+}
 
 // still-water shoreline x at this z (headlands push it seaward)
 export function shorelineX(z) {
@@ -94,7 +106,7 @@ export function shorelineX(z) {
 
 // ground elevation (m, 0 = still water) at xs metres seaward of the shoreline
 export function beachElevation(xs) {
-  if (xs >= 0) return -(DEAN_A * Math.pow(xs + DEAN_X0, 2 / 3) - DEAN_H0)
+  if (xs >= 0) return -bedDepth(xs)
   return BERM_H * (1 - Math.exp((FACE_SLOPE * xs) / BERM_H))
 }
 
@@ -115,7 +127,9 @@ export const SEABED_GLSL = /* glsl */ `
   }
   float seaDepth(vec2 p) {
     float xs = max(p.x - shorelineX(p.y), 0.0);
-    return ${DEAN_A.toFixed(6)} * pow(xs + ${DEAN_X0.toFixed(6)}, 0.6666667) - ${DEAN_H0.toFixed(6)};
+    // twin of bedDepth: measured knots, piecewise linear
+    ${BED_X.slice(1).map((x, i) => `if (xs < ${x.toFixed(1)}) return ${BED_D[i].toFixed(3)} + (xs - ${BED_X[i].toFixed(1)}) * ${((BED_D[i + 1] - BED_D[i]) / (x - BED_X[i])).toFixed(6)};`).join('\n    ')}
+    return ${BED_D[BED_D.length - 1].toFixed(3)} + (xs - ${BED_X[BED_X.length - 1].toFixed(1)}) * ${BED_TAIL.toFixed(6)};
   }
 `
 

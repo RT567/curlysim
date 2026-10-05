@@ -82,6 +82,9 @@ const SHORE_X = shorelineX(BANK_PEAK_Z) // the train travels along the bank's z 
 // right at you, as the odd clean-up set does in a real lineup.
 export const LINEUP_MARGIN = 8 // m seaward of the onset
 const LINEUP_SET_F = 1.3
+// Above ~2 m (a six-foot day by surfers' back-measure) Curl Curl closes out and nobody paddles further:
+// the seat stops moving out at this swell height while the waves keep breaking further out.
+const LINEUP_HS_CAP = 2.0
 const STEEP_LEAN = 0.8 // surfaceAt: crest lean starts (smoothstep(0.8, 1.0, steep))
 
 export class WaveField {
@@ -263,7 +266,7 @@ export class WaveField {
         Math.max((this.depthAt(x - md.x * 8, z - md.z * 8) - this.depthAt(x + md.x * 8, z + md.z * 8)) / 16, 0.01),
         0.12
       )
-      const hFull = this.hs * LINEUP_SET_F * shoalK(T, d)
+      const hFull = Math.min(this.hs, LINEUP_HS_CAP) * LINEUP_SET_F * shoalK(T, d)
       if (hFull / (godaHb(1.56 * T * T, d, slope, GODA_A) * (1 + 0.15 * windT)) >= STEEP_LEAN) return x
     }
     return shore // nothing goes nonlinear before the sand (tiny swell)
