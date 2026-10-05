@@ -12,30 +12,37 @@
 //   - past the limit it becomes a depth-limited foamy bore (H ~ 0.55 d)
 //     that shrinks as it rolls in, leaving a foam trail
 //
-// The sandbank is part of the DEPTH FIELD (shallower on the A-frame peak), so
-// waves jack and break there first and peel toward the channels — real
-// bathymetry behavior, not scripted.
+// The seabed is a smooth Dean profile, identical all along the beach, so the
+// break line is even; swell angle is softened by refraction (see constants).
 //
 // The same math lives twice: GLSL (vertex shader) and JS (camera/surfers).
 // Keep the twins numerically identical.
 
-import { fromDirToVec, BANK_PEAK_Z, BANK_K, BREAKER_INDEX } from './geo.js'
+import { fromDirToVec, BANK_PEAK_Z, BREAKER_INDEX, seaDepth, shorelineX, SEABED_GLSL } from './geo.js'
 
 export const MAX_TRAIN = 24
 const G = 9.81
 const D_REF = 12 // depth (m) beyond which shoaling is negligible
-// concave beach profile d = A*x^2/(x+X0): gentle at the waterline, steepening
-// through the surf zone (real beach shape; puts breaks 60-250 m out)
-const DEPTH_A = 0.055
-const DEPTH_X0 = 120
-// the sandbar: a mound on the bed with a STEEP seaward face (locally ~1:9) —
-// per the breaker literature this face is what makes waves throw instead of
-// spill; the deeper trough behind it lets broken waves reform
-const BAR_H = 2.8
-const BAR_X = 165
-const BAR_W = 30
+// Seabed: geo.js seaDepth — the same ground function the terrain mesh is
+// built from (smooth, monotonic, identical cross-shore profile everywhere,
+// measured from the local still-water shoreline).
+// Refraction: real crests swing toward shore-parallel over the shelf and
+// wrap round the headlands, so the propagation angle off the shore normal is
+// this fraction of the offshore swell's angle (sign kept: direction still
+// matters, just less). There is no other refraction step: the train is one
+// set of plane crests along meanDir, so this is applied once, in rebuild().
+export const SWELL_ANGLE_FACTOR = 0.25
 const SPAWN_X = 680 // waves are born this far out
 const DIE_X = -14 // waves run up the beach as swash before dying
+
+// Lineup placement (see nonlinearOnsetX): sit this far outside the zone where
+// waves stop being clean linear swell. Set waves are dealt at 1.05/1.3/1.1 x Hs
+// (+-10%), so 1.3 Hs is the typical biggest wave of a set. The rare max
+// (~1.43 Hs) is deliberately NOT the design wave: it may stand up or break
+// right at you, as the odd clean-up set does in a real lineup.
+export const LINEUP_MARGIN = 8 // m seaward of the onset
+const LINEUP_SET_F = 1.3
+const STEEP_LEAN = 0.8 // surfaceAt: crest lean starts (smoothstep(0.8, 1.0, steep))
 
 export class WaveField {
   constructor() {
@@ -63,7 +70,7 @@ export class WaveField {
     // total sea state (the model splits conservatively vs the real buoy)
     this.hs = Math.max(primary ? primary.height : 0.3, (conditions.totalWave ?? 0) * 0.95)
     this.tp = primary ? Math.min(Math.max(primary.period, 4), 18) : 8
-    this.meanDir = fromDirToVec(primary ? primary.dir : 135)
+    this.meanDir = refract(fromDirToVec(primary ? primary.dir : 135))
     // signed offshore wind component (m/s, + = offshore): shifts the breaker
     // index and plunge intensity (Douglass 1990)
     const windVec = fromDirToVec(conditions.windDirFrom ?? 290)
@@ -153,7 +160,7 @@ export class WaveField {
       d = Math.max((hFull * Math.max(green, 1)) / BREAKER_INDEX, 0.5)
     }
     this.faceHeight = d * BREAKER_INDEX
-    // march shoreward over the real bathymetry (bar included): the first spot
+    // march shoreward over the bathymetry: the first spot
     // a typical dealt wave meets the depth limit is the break line
     this.xBreak = 25
     for (let x = 500; x >= 25; x -= 5) {
@@ -164,6 +171,41 @@ export class WaveField {
         break
       }
     }
+  }
+
+  // --- lineup: where a surfer waits, just outside the nonlinear zone ---
+  //
+  // Same per-point criterion surfaceAt uses: steep = H_full / (gamma * d) with
+  // the wind-shifted Weggel gamma; at steep 0.8 the crest starts to lean (lip
+  // rotation smoothstep) and the swell stops being a clean linear wave. March
+  // in from offshore along this z line and return the outermost x where a
+  // typical biggest-of-set wave (LINEUP_SET_F x Hs) reaches that onset.
+  // Pure query: doesn't touch the wave train.
+  nonlinearOnsetX(z = BANK_PEAK_Z) {
+    const md = this.meanDir
+    const windT = Math.tanh(this.windU / 8)
+    const T = this.tp
+    const shore = shorelineX(z)
+    for (let x = SPAWN_X - 40; x >= shore; x -= 1) {
+      const d = this.depthAt(x, z)
+      const slope = Math.min(
+        Math.max((this.depthAt(x - md.x * 8, z - md.z * 8) - this.depthAt(x + md.x * 8, z + md.z * 8)) / 16, 0.01),
+        0.12
+      )
+      const wA = 43.8 * (1 - Math.exp(-19 * slope))
+      const wB = 1.56 / (1 + Math.exp(-19.5 * slope))
+      const green = Math.min(Math.pow(D_REF / Math.max(d, 0.4), 0.25), 2.2)
+      const hFull = this.hs * LINEUP_SET_F * green
+      const gamma = Math.min(Math.max(wB - (wA * hFull) / (G * T * T), 0.6), 1.5) * (1 + 0.15 * windT)
+      if (hFull / (gamma * d) >= STEEP_LEAN) return x
+    }
+    return shore // nothing goes nonlinear before the sand (tiny swell)
+  }
+
+  // where to sit on this z line: LINEUP_MARGIN metres outside the onset.
+  // (camera.js lineupX adds the hard shore / depth clamps)
+  lineupX(z = BANK_PEAK_Z) {
+    return this.nonlinearOnsetX(z) + LINEUP_MARGIN
   }
 
   _pack() {
@@ -180,11 +222,10 @@ export class WaveField {
 
   // --- CPU twins of the GLSL (keep numerically identical) ---
 
+  // still-water depth from the shared ground function; the 0.25 m floor is
+  // numerical only (keeps sqrt(g d) and H/d finite in the swash)
   depthAt(x, z) {
-    const base = (DEPTH_A * x * x) / (x + DEPTH_X0)
-    const bankZ = Math.max(Math.cos((z - BANK_PEAK_Z) * BANK_K), 0)
-    const bar = BAR_H * Math.exp(-Math.pow((x - BAR_X) / BAR_W, 2)) * bankZ
-    return Math.max(base - bar, 0.25)
+    return Math.max(seaDepth(x, z), 0.25)
   }
 
   // Water surface height + foam at a fixed world point.
@@ -197,7 +238,8 @@ export class WaveField {
   surfaceAt(x, z) {
     const d = this.depthAt(x, z)
     // waves persist onto the sand (swash) and fade over the last berm metres
-    const shore = smoothstep(-18, -2, x)
+    const xs = x - shorelineX(z) // metres seaward of the local shoreline
+    const shore = smoothstep(-18, -2, xs)
     const sPos = x * this.meanDir.x + z * this.meanDir.z
     // bottom slope the wave feels, along travel: depth behind minus depth
     // ahead over 16 m (positive = shoaling)
@@ -269,7 +311,7 @@ export class WaveField {
     // waterline: a thin sheet tucked just under the beach ramp (capped at
     // ankle height so it can never surface through low terrain inland);
     // swash pulses lift it above the sand so the water's edge runs up/recedes
-    const swashBed = Math.min(Math.max(-x, 0) * 0.035, 0.22) - 0.06
+    const swashBed = Math.min(Math.max(-xs, 0) * 0.035, 0.22) - 0.06
     return { y: Math.max(y * shore, swashBed), foam: Math.min(foam, 1) * shore, leanX, leanZ }
   }
 
@@ -340,6 +382,12 @@ export class WaveField {
   }
 }
 
+// scale a shoreward travel direction's angle off the shore normal (-X)
+function refract(v) {
+  const a = Math.atan2(-v.z, -v.x) * SWELL_ANGLE_FACTOR
+  return { x: -Math.cos(a), z: -Math.sin(a) }
+}
+
 function smoothstep(e0, e1, x) {
   const t = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1)
   return t * t * (3 - 2 * t)
@@ -351,11 +399,9 @@ export const WAVE_GLSL = /* glsl */ `
   uniform vec2 uSwellDir; // travel direction (toward shore)
   uniform float uWindU; // offshore wind component, m/s (+ = offshore)
 
+  ${SEABED_GLSL}
   float depthAt(vec2 p) {
-    float base = ${DEPTH_A} * p.x * p.x / (p.x + ${DEPTH_X0.toFixed(1)});
-    float bankZ = max(cos((p.y - (${BANK_PEAK_Z.toFixed(1)})) * ${BANK_K.toFixed(6)}), 0.0);
-    float bar = ${BAR_H.toFixed(2)} * exp(-pow((p.x - ${BAR_X.toFixed(1)}) / ${BAR_W.toFixed(1)}, 2.0)) * bankZ;
-    return max(base - bar, 0.25);
+    return max(seaDepth(p), 0.25);
   }
 
   // xyz = displacement (xz: crest lean), w = foam
@@ -364,7 +410,8 @@ export const WAVE_GLSL = /* glsl */ `
   vec4 surf(vec2 p) {
     gPhase = 0.0;
     float d = depthAt(p);
-    float shore = smoothstep(-18.0, -2.0, p.x);
+    float xs = p.x - shorelineX(p.y); // metres seaward of the local shoreline
+    float shore = smoothstep(-18.0, -2.0, xs);
     float sPos = dot(p, uSwellDir);
     // bottom slope along travel: depth behind minus ahead (+ = shoaling)
     float slope = clamp(
@@ -417,7 +464,7 @@ export const WAVE_GLSL = /* glsl */ `
       float trail = xi < 0.0 ? exp(-pow(xi / 0.55, 2.0)) : 0.0;
       foam += brk * max(kern, 0.75 * trail);
     }
-    float swashBed = min(max(-p.x, 0.0) * 0.035, 0.22) - 0.06;
+    float swashBed = min(max(-xs, 0.0) * 0.035, 0.22) - 0.06;
     return vec4(lean.x, max(y * shore, swashBed), lean.y, min(foam, 1.0) * shore);
   }
 `

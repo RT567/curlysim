@@ -6,16 +6,8 @@
 // Dee Why headland + Long Reef's long low profile on the northern horizon.
 
 import * as THREE from 'three'
+import { HEADLANDS, shorelineX, beachElevation, LAGOON_Z, LAGOON_SIGMA, LAGOON_EDGE } from './geo.js'
 
-const HEADLANDS = [
-  { z: 650, h: 42, sz: 200, sea: 120 }, // South Curl Curl headland
-  { z: -680, h: 55, sz: 190, sea: 160 }, // North Curl Curl headland
-  { z: -1450, h: 40, sz: 240, sea: 110 }, // Dee Why headland
-  { z: -2700, h: 26, sz: 420, sea: 800 }, // Long Reef: long, low, juts seaward
-  { z: 1450, h: 46, sz: 260, sea: 140 }, // Freshwater / Queenscliff
-  { z: 2900, h: 75, sz: 420, sea: 320 }, // Manly North Head
-]
-const LAGOON_Z = -350
 
 const gauss = (v, s) => Math.exp(-(v * v) / (2 * s * s))
 const smooth = (e0, e1, x) => {
@@ -23,36 +15,37 @@ const smooth = (e0, e1, x) => {
   return t * t * (3 - 2 * t)
 }
 
+// shoreline shift comes from geo.js (shared with the wave physics)
 function headlandAt(z) {
-  let shift = 0
   let h = 0
-  for (const hd of HEADLANDS) {
-    const m = gauss(z - hd.z, hd.sz)
-    shift = Math.max(shift, hd.sea * Math.pow(m, 0.7))
-    h = Math.max(h, hd.h * m)
-  }
-  return { shift, h }
+  for (const hd of HEADLANDS) h = Math.max(h, hd.h * gauss(z - hd.z, hd.sz))
+  return { shift: shorelineX(z), h }
 }
 
+// Ground height. The cross-shore profile — sea floor, waterline, beach face —
+// is geo.js beachElevation, the same function the waves get their depth from.
+// Dunes, hills, headland cliffs and the lagoon are added only inland of the
+// waterline (each is exactly 0 there), so they can't move the shoreline.
 export function terrainHeight(x, z) {
   const { shift, h: headH } = headlandAt(z)
   const xs = x - shift
-  if (xs > 0) return -xs * 0.06 - 0.5 // underwater sand
+  const base = beachElevation(xs)
+  if (xs >= 0) return base // sea floor
 
   const inland = -xs
   const headNorm = Math.min(headH / 40, 1)
-  const lagoon = gauss(z - LAGOON_Z, 110)
+  const lagoon = gauss(z - LAGOON_Z, LAGOON_SIGMA)
 
-  // wide, gentle foreshore first, then the dune ridge further back
-  let y = Math.min(inland * 0.04, 1.8)
-  y += 6 * gauss(inland - 58, 20) * (1 - headNorm) * (1 - 0.9 * lagoon) // dune ridge
+  // beach face from the shared profile, then the dune ridge further back
+  let y = base
+  y += 6 * gauss(inland - 58, 20) * smooth(0, 20, inland) * (1 - headNorm) * (1 - 0.9 * lagoon) // dune ridge
   // hills behind (John Fisher Park stays flat, houses on the rise)
   const hillNoise = 0.8 + 0.2 * Math.sin(z * 0.005 + 1) + 0.12 * Math.sin(z * 0.013)
   y += Math.min(Math.max(inland - 130, 0) * 0.06, 58) * hillNoise * (1 - 0.92 * lagoon)
   // headland mass: steep cliff face at the sea edge
   y += headH * smooth(0, 35, inland)
   // lagoon flat
-  if (lagoon > 0.3 && inland > 15) y = Math.min(y, 0.6 + (1 - lagoon) * 4)
+  if (lagoon > LAGOON_EDGE && inland > 15) y = Math.min(y, Math.max(0.6 + (1 - lagoon) * 4, base))
   return y
 }
 

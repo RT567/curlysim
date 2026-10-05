@@ -19,6 +19,7 @@ Sit "out the back" at North Curl Curl (Sydney) in a browser, in the **actual cur
 | 2026-09-01 | Realistic waterline: swash runup sheet, waves die on the sand. |
 | 2026-09-02 | "Full realism": Rayleigh wave statistics, real sets/lulls, live-data sizes. |
 | 2026-09-02 | Tab title shortened from "curlysim — out the back at Curl Curl" to just **"curlysim"** (owner request). |
+| 2026-10-05 | First-person legs + 1.98 m board, crowd rules, shore-aware lineup outside the break, one shared seabed function, swell angle x0.25 (see doc 02). |
 
 ## Layout
 

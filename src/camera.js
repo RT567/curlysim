@@ -6,9 +6,24 @@
 // from the water is tiny and heavily smoothed.
 
 import * as THREE from 'three'
-import { BANK_PEAK_Z } from './geo.js'
+import { BANK_PEAK_Z, shorelineX, seaDepth, beachElevation, NORTH_SEAT_LIMIT_Z } from './geo.js'
 
 const EYE_HEIGHT = 0.85 // sitting on a board
+// how far down you can look: far enough to see your own lap and board
+// (was -0.55, which stopped short of your knees)
+const PITCH_MIN = -1.2
+// never sit on or near the sand: at least this much still water under you
+const SEAT_MIN_DEPTH = 1.5
+// if the lineup search ever fails, sit this far out from the shoreline
+const SEAT_FALLBACK = 60
+// the ground profile is the same everywhere relative to the local shoreline,
+// so "1.5 m of water" is a fixed distance seaward of it
+const SEAT_MIN_XS = (() => {
+  let xs = 0
+  while (-beachElevation(xs) < SEAT_MIN_DEPTH) xs += 0.1
+  return xs
+})()
+const minSeatX = (z) => shorelineX(z) + SEAT_MIN_XS
 
 export class POVCamera {
   constructor(waveField, dom) {
@@ -42,18 +57,37 @@ export class POVCamera {
     this._bindPointer(dom)
   }
 
-  // sit just inside the break line — sets detonate right in front of you —
-  // but never in water shallower than a sitting surfer needs (small days
-  // would otherwise seat you in the shore wash looking at the dunes).
+  // sit in the lineup just OUTSIDE the break: a few metres seaward of where
+  // the set waves stop being clean linear swell (waves.js nonlinearOnsetX),
+  // so sets pass under you unbroken and detonate shoreward. Only the
+  // cross-shore distance comes from the conditions; z stays put. Never in
+  // water shallower than a sitting surfer needs, and inside the fine mesh.
   // Skipped once the user has paddled somewhere themselves.
+  // (surfers.js seats the crowd on the same line)
+  lineupX(z) {
+    let x = this.waveField.lineupX(z)
+    if (!Number.isFinite(x)) x = shorelineX(z) + SEAT_FALLBACK
+    // hard shore clamp (same ground function as the terrain), and stay
+    // inside the fine-mesh near tier
+    return THREE.MathUtils.clamp(Math.max(x, minSeatX(z)), 6, 470)
+  }
+
   _defaultSeat() {
-    let x = Math.max(this.waveField.xBreak - 55, 25)
-    while (this.waveField.depthAt(x, BANK_PEAK_Z) < 1.3 && x < 470) x += 5
-    return x
+    return this.lineupX(this.seatZ)
   }
 
   reseat() {
     if (!this.userMoved) this.seatX = this._defaultSeat()
+  }
+
+  // invariant: the seat is in the water, seaward of the shoreline
+  _checkSeat() {
+    const d = seaDepth(this.seatX, this.seatZ)
+    if (d >= SEAT_MIN_DEPTH - 0.05 && this.seatX > shorelineX(this.seatZ) && this.seatZ >= NORTH_SEAT_LIMIT_Z - 0.01) return
+    if (!this._warned) {
+      console.warn(`[curlysim] seat on/near land: x=${this.seatX.toFixed(1)} z=${this.seatZ.toFixed(1)} depth=${d.toFixed(2)} shoreline=${shorelineX(this.seatZ).toFixed(1)}`)
+      this._warned = true
+    }
   }
 
   _move(dt) {
@@ -73,8 +107,9 @@ export class POVCamera {
     this.seatX += (lookX * fwd - lookZ * str) * sp
     this.seatZ += (lookZ * fwd + lookX * str) * sp
     // stay inside the fine-mesh near tier (x -20..500, z -640..120)
-    this.seatX = THREE.MathUtils.clamp(this.seatX, 6, 470)
-    this.seatZ = THREE.MathUtils.clamp(this.seatZ, -610, 90)
+    // south of the north headland wall, inside the fine-mesh near tier
+    this.seatZ = THREE.MathUtils.clamp(this.seatZ, Math.max(NORTH_SEAT_LIMIT_Z, -610), 90)
+    this.seatX = THREE.MathUtils.clamp(Math.max(this.seatX, minSeatX(this.seatZ)), 6, 470)
     this.userMoved = true
   }
 
@@ -98,7 +133,7 @@ export class POVCamera {
       lastX = e.clientX
       lastY = e.clientY
       this.yaw += dx * 0.0032
-      this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.0032, -0.55, 0.75)
+      this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.0032, PITCH_MIN, 0.75)
     })
     const end = (e) => {
       dragging = false
@@ -111,6 +146,7 @@ export class POVCamera {
   update(dt, t) {
     dt = Math.min(dt, 0.05)
     this._move(dt)
+    this._checkSeat()
     const wf = this.waveField
     const targetY = wf.heightAt(this.seatX, this.seatZ, t)
     // tight low-pass: smooths the chop jitter but never lets the eye lag a

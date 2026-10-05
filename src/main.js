@@ -10,6 +10,7 @@ import { SkySystem } from './sky.js'
 import { Weather } from './weather.js'
 import { Surfers } from './surfers.js'
 import { POVCamera } from './camera.js'
+import { Body } from './body.js'
 import { fetchConditions, DEFAULT_CONDITIONS } from './conditions.js'
 
 const app = document.getElementById('app')
@@ -41,8 +42,9 @@ buildTerrain(scene)
 const trees = new Trees(scene)
 const sky = new SkySystem(scene)
 const weather = new Weather(scene)
-const surfers = new Surfers(scene, waveField)
 const pov = new POVCamera(waveField, app)
+const body = new Body(scene, pov) // your own legs + board under the camera
+const surfers = new Surfers(scene, waveField, pov)
 
 function simDate() {
   return new Date(Date.now() + state.timeOffsetHours * 3600 * 1000)
@@ -93,6 +95,8 @@ window.curlysim = {
   waveField,
   sky,
   pov,
+  body,
+  surfers,
   ocean,
   scene,
   renderer,
@@ -124,9 +128,10 @@ renderer.setAnimationLoop(() => {
   waveField.update(dt) // advance the wave train
   const env = sky.update(simDate(), state.conditions, pov.camera)
   pov.update(dt, t)
+  body.update(dt, t)
   ocean.update(t, pov.camera, env)
   weather.update(dt, t, pov.camera)
   trees.update(t)
-  surfers.update(t)
+  surfers.update(t, dt)
   renderer.render(scene, pov.camera)
 })

@@ -5,9 +5,20 @@
 // semi-sheltered north corner when the NE'er is on, empty when it's junk.
 
 import * as THREE from 'three'
-import { BANK_PEAK_Z, BANK_WAVELENGTH, fromDirToVec } from './geo.js'
+import { BANK_PEAK_Z, BANK_WAVELENGTH, fromDirToVec, NORTH_SEAT_LIMIT_Z, shorelineX } from './geo.js'
+import { makeBoard } from './board.js'
+import { makeLegs, BODY, MATERIALS } from './body.js'
 
-const MAX_SURFERS = 14
+const MAX_SURFERS = 20 // busiest it gets (was 14)
+const MIN_SURFERS = 1 // always someone out: a body + board for scale
+const MIN_GAP = 4.6 // m: nobody ever sits closer than ~5 yards to the viewer
+const BUDDY_R = [7, 16] // m: the nearest surfer is placed this far from you
+const NEARBY_R = 25 // m: if nobody is this close, the buddy re-seats near you
+const SURFER_GAP = 3 // m between other surfers' seats
+// everyone sits in the viewer's lineup band: within this many metres (~5 yd)
+// cross-shore of the lineup line, spread up and down the beach in packs
+export const LINEUP_BAND = 4.6
+const PACK_SPREAD = 35 // m: a pack spreads this far either side of its peak
 
 export function crowdModel(conditions, faceHeight, date, sunAltitudeDeg) {
   // wave quality 0..1
@@ -42,37 +53,32 @@ export function crowdModel(conditions, faceHeight, date, sunAltitudeDeg) {
 
   let count = Math.round(MAX_SURFERS * quality * timeF * season) * daylight
   if (quality < 0.14) count = 0
-  return { count: Math.min(count, MAX_SURFERS), quality }
+  return { count: THREE.MathUtils.clamp(count, MIN_SURFERS, MAX_SURFERS), quality }
 }
 
+const BOARD_COLORS = [0xf2f0e8, 0xe8b84b, 0x7fc4d8, 0xd87f6a, 0x9fd88f]
+const TORSO_GEO = new THREE.BoxGeometry(0.3, 0.58, 0.26)
+const HEAD_GEO = new THREE.IcosahedronGeometry(0.12, 0)
+
+// Same board and legs as the viewer (board.js / body.js), so every board in
+// the lineup is the same true-size measuring stick. Origin = seat on the deck.
 function makeSurfer() {
-  const g = new THREE.Group()
-  const boardColors = [0xf2f0e8, 0xe8b84b, 0x7fc4d8, 0xd87f6a, 0x9fd88f]
-  const board = new THREE.Mesh(
-    new THREE.BoxGeometry(1.9, 0.12, 0.5),
-    new THREE.MeshStandardMaterial({
-      color: boardColors[(Math.random() * boardColors.length) | 0],
-      roughness: 0.7,
-    })
-  )
-  board.position.y = 0.06
-  const torso = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.58, 0.26),
-    new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 1 }) // wetsuit
-  )
-  torso.position.y = 0.45
-  const head = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(0.12, 0),
-    new THREE.MeshStandardMaterial({ color: 0xd9a878, roughness: 1, flatShading: true })
-  )
-  head.position.y = 0.85
-  g.add(board, torso, head)
+  const g = new THREE.Group() // position + water tilt
+  const yaw = new THREE.Group() // heading
+  const torso = new THREE.Mesh(TORSO_GEO, MATERIALS.WETSUIT)
+  torso.position.set(0, 0.34, 0.04)
+  const head = new THREE.Mesh(HEAD_GEO, MATERIALS.SKIN)
+  head.position.set(0, 0.8, 0.02) // eye ~0.8 m above the deck, like ours
+  yaw.add(makeBoard(BOARD_COLORS[(Math.random() * BOARD_COLORS.length) | 0]), makeLegs(), torso, head)
+  g.add(yaw)
+  g.userData.yaw = yaw
   return g
 }
 
 export class Surfers {
-  constructor(scene, waveField) {
+  constructor(scene, waveField, pov) {
     this.waveField = waveField
+    this.pov = pov
     this.group = new THREE.Group()
     scene.add(this.group)
     this.surfers = []
@@ -84,6 +90,54 @@ export class Surfers {
       this.surfers.push(s)
     }
     this.count = 0
+    this._lonely = 0
+  }
+
+  // Where a surfer actually is this frame: their home seat, unless you've
+  // paddled within MIN_GAP of it, in which case they sit pushed radially out
+  // to MIN_GAP. Computed fresh from the home seat every frame, so nobody gets
+  // shoved along (and bunched up) as you paddle past; they settle back home.
+  _clear(home, out) {
+    const dx = home.x - this.pov.seatX
+    const dz = home.z - this.pov.seatZ
+    const r = Math.hypot(dx, dz)
+    if (r >= MIN_GAP) {
+      out.x = home.x
+      out.z = home.z
+      return out
+    }
+    const ux = r > 1e-3 ? dx / r : 0
+    const uz = r > 1e-3 ? dz / r : 1
+    out.x = this.pov.seatX + ux * MIN_GAP
+    out.z = this.pov.seatZ + uz * MIN_GAP
+    // never shoved past the north wall: go round the other side instead
+    if (out.z < NORTH_SEAT_LIMIT_Z) out.z = this.pov.seatZ + Math.abs(uz) * MIN_GAP
+    return out
+  }
+
+  // the viewer's lineup distance from the shore, applied at this z (the
+  // coast curves toward the north headland, so band x follows the shoreline)
+  _bandX(z) {
+    const vz = this.pov.seatZ
+    const lineFromShore = this.pov.lineupX(vz) - shorelineX(vz)
+    const x = shorelineX(z) + lineFromShore + THREE.MathUtils.randFloatSpread(2 * LINEUP_BAND)
+    return Math.min(x, 470)
+  }
+
+  // put the buddy (surfer 0) BUDDY_R up or down the beach from the viewer, in
+  // the band; `side` (+1/-1 along z) picks which way, random by default
+  _seatBuddy(side = Math.random() < 0.5 ? -1 : 1) {
+    const s = this.surfers[0]
+    let z = this.pov.seatZ + side * THREE.MathUtils.randFloat(BUDDY_R[0], BUDDY_R[1])
+    if (z < NORTH_SEAT_LIMIT_Z) z = this.pov.seatZ + Math.abs(z - this.pov.seatZ) // no room north: go south
+    s.userData.home = { x: this._bandX(z), z }
+    s.userData.yaw.rotation.y = this._heading()
+  }
+
+  // most sit facing out to sea watching for sets; some face the beach
+  _heading() {
+    const base = Math.random() < 0.75 ? -Math.PI / 2 : Math.PI / 2
+    return base + THREE.MathUtils.randFloatSpread(1.4)
   }
 
   // (re)seat the crowd for the current conditions
@@ -97,38 +151,65 @@ export class Surfers {
     // sheltered corner under the north headland
     const northCorner = kn > 9 && windVec.z > 0.35 && windVec.x < 0.2
 
-    const xb = this.waveField.xBreak
-    for (let i = 0; i < MAX_SURFERS; i++) {
+    for (let i = 0; i < MAX_SURFERS; i++) this.surfers[i].visible = i < count
+    this._seatBuddy()
+    const placed = [this.surfers[0].userData.home]
+    const vz = this.pov.seatZ
+    for (let i = 1; i < count; i++) {
       const s = this.surfers[i]
-      s.visible = i < count
-      if (!s.visible) continue
       let z
-      if (northCorner) {
-        z = -480 - Math.random() * 130
-      } else {
-        // cluster on the A-frame peaks either side of us
-        const peak = BANK_PEAK_Z + (((Math.random() * 3) | 0) - 1) * BANK_WAVELENGTH
-        z = peak + THREE.MathUtils.randFloatSpread(70)
+      for (let tries = 0; tries < 12; tries++) {
+        if (northCorner) {
+          // tucked in just south of the north headland wall
+          z = NORTH_SEAT_LIMIT_Z + Math.random() * 110
+        } else {
+          // packs on three peaks: ours, one south, and one north (pulled in
+          // so its whole spread stays south of the north headland wall)
+          const r = Math.random()
+          const north = Math.max(BANK_PEAK_Z - BANK_WAVELENGTH, NORTH_SEAT_LIMIT_Z + PACK_SPREAD)
+          const peak = r < 0.4 ? BANK_PEAK_Z : r < 0.7 ? north : BANK_PEAK_Z + BANK_WAVELENGTH
+          z = peak + THREE.MathUtils.randFloatSpread(2 * PACK_SPREAD)
+        }
+        // only the buddy sits in the close ring: everyone else is further
+        // along the beach (pushed to the nearer side if a draw lands close)
+        if (Math.abs(z - vz) < BUDDY_R[1]) z = vz + (z >= vz ? 1 : -1) * (BUDDY_R[1] + Math.random() * 4)
+        z = Math.max(z, NORTH_SEAT_LIMIT_Z)
+        if (placed.every((p) => Math.abs(p.z - z) > SURFER_GAP)) break
       }
-      // straddle the takeoff zone just inside the break, like the camera
-      const x = xb - 45 + Math.random() * 35
-      // don't sit in our lap
-      if (Math.abs(z - BANK_PEAK_Z) < 14 && Math.abs(x - (xb - 35)) < 14) z += 20
-      s.userData.seat = { x, z }
-      s.rotation.y = Math.PI / 2 + THREE.MathUtils.randFloatSpread(1.4)
+      // the same band as the viewer: just outside the break at this z
+      const home = { x: this._bandX(z), z }
+      placed.push(home)
+      s.userData.home = home
+      s.userData.seat = { ...home }
+      s.userData.yaw.rotation.y = this._heading()
     }
+    this.surfers[0].userData.seat = { ...this.surfers[0].userData.home }
   }
 
-  update(t) {
+  update(t, dt = 0.016) {
     const wf = this.waveField
+    let nearest = Infinity
+    for (let i = 0; i < this.count; i++) {
+      const { home, seat } = this.surfers[i].userData
+      this._clear(home, seat) // continuous: you can paddle, they make room
+      nearest = Math.min(nearest, Math.hypot(seat.x - this.pov.seatX, seat.z - this.pov.seatZ))
+    }
+    // someone nearby most of the time: if you've paddled away from everyone,
+    // the buddy quietly re-seats near you on the side you're not looking at
+    this._lonely = nearest > NEARBY_R ? this._lonely + Math.min(dt, 0.1) : 0
+    if (this._lonely > 4) {
+      const lookZ = Math.sin(this.pov.yaw) // yaw 0 faces -X; +z component of view
+      this._seatBuddy(lookZ > 0 ? -1 : 1)
+      this.surfers[0].userData.seat = { ...this.surfers[0].userData.home }
+      this._lonely = 0
+    }
     for (let i = 0; i < this.count; i++) {
       const s = this.surfers[i]
       const { x, z } = s.userData.seat
       const y = wf.heightAt(x, z, t)
-      s.position.set(x, y + 0.12 + Math.sin(t * 1.3 + s.userData.phase) * 0.05, z)
-      const n = wf.normalAt(x, z, t, 3)
-      s.rotation.x = n.z * 0.4
-      s.rotation.z = -n.x * 0.4
+      s.position.set(x, y + BODY.deckY + Math.sin(t * 1.3 + s.userData.phase) * 0.03, z)
+      const n = wf.normalAt(x, z, t, 2)
+      s.rotation.set(THREE.MathUtils.clamp(n.z * 0.8, -0.2, 0.2), 0, THREE.MathUtils.clamp(-n.x * 0.8, -0.2, 0.2))
     }
   }
 }
