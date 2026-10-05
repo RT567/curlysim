@@ -66,8 +66,9 @@ export const LAGOON_Z = -350
 export const LAGOON_SIGMA = 110
 export const LAGOON_EDGE = 0.3
 export const NORTH_WALL_Z = LAGOON_Z - LAGOON_SIGMA * Math.sqrt(2 * Math.log(1 / LAGOON_EDGE)) // ~ -521
-// nobody (viewer or crowd) sits further north than this: 15 m off the rocks
-export const NORTH_SEAT_LIMIT_Z = NORTH_WALL_Z + 15
+// nobody (viewer or crowd) sits further north than this: 65 m south of the wall (Rob, 2026-10-05: 15 m
+// still put people visibly too far north)
+export const NORTH_SEAT_LIMIT_Z = NORTH_WALL_Z + 65
 
 export const SHORE_SLOPE = 1 / 14
 export const SHELF_SLOPE = 1 / 50
