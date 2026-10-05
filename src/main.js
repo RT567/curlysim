@@ -29,9 +29,10 @@ const state = {
   timeOffsetHours: 0, // debug only
   overrides: null, // debug only
 }
-// dev overrides persist across reloads; cleared with curlysim.clearDev()
+// dev overrides persist across reloads (cleared with curlysim.clearDev()), but only apply with ?debug:
+// a plain visit always shows the live conditions
 try {
-  const dev = JSON.parse(localStorage.getItem('curlysim-dev') || 'null')
+  const dev = new URLSearchParams(location.search).has('debug') && JSON.parse(localStorage.getItem('curlysim-dev') || 'null')
   if (dev) state.overrides = dev
 } catch {}
 

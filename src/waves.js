@@ -22,6 +22,15 @@ import { fromDirToVec, BANK_PEAK_Z, BREAKER_INDEX, seaDepth, shorelineX, SEABED_
 
 export const MAX_TRAIN = 24
 const G = 9.81
+
+// Linear phase speed at depth d for period T (deep-water speed c0 = gT/2pi): Fenton & McKee (1990),
+// L = L0 tanh((k0 d)^(3/4))^(2/3), within ~2% of the exact dispersion relation at every depth. The old
+// min(sqrt(g d), c0) was right only at the two extremes and ran up to ~15% fast in between, exactly where
+// the waves approach the lineup. Twin in WAVE_GLSL (phaseSpeed).
+function phaseSpeed(c0, T, d) {
+  const k0d = (d * 4 * Math.PI * Math.PI) / (G * T * T)
+  return c0 * Math.pow(Math.tanh(Math.pow(k0d, 0.75)), 2 / 3)
+}
 const D_REF = 12 // depth (m) beyond which shoaling is negligible
 // Seabed: geo.js seaDepth — the same ground function the terrain mesh is
 // built from (smooth, monotonic, identical cross-shore profile everywhere,
@@ -127,7 +136,7 @@ export class WaveField {
       const w = this.waves[i]
       const x = this._xAt(w.s)
       const d = this.depthAt(x, BANK_PEAK_Z)
-      const c = Math.min(Math.sqrt(G * d), w.c0)
+      const c = phaseSpeed(w.c0, w.L0 / w.c0, d)
       w.s += c * dt
       // queue behind the wave ahead so crests never overtake and merge. The gap
       // is a fraction of the LOCAL wavelength c*T: crests bunch up naturally in
@@ -269,8 +278,8 @@ export class WaveField {
     let leanX = 0
     let leanZ = 0
     for (const w of this.waves) {
-      const c = Math.min(Math.sqrt(G * d), w.c0)
       const T = w.L0 / w.c0
+      const c = phaseSpeed(w.c0, T, d)
       // rendered wavelength floors at 25% of deep-water L so faces stay wide
       // enough for both realism and the mesh to resolve
       const L = Math.max(c * T, 0.25 * w.L0, 6)
@@ -424,6 +433,12 @@ export const WAVE_GLSL = /* glsl */ `
     return max(seaDepth(p), 0.25);
   }
 
+  // twin of waves.js phaseSpeed (Fenton & McKee dispersion)
+  float phaseSpeed(float c0, float T, float d) {
+    float k0d = d * ${(4 * Math.PI * Math.PI).toFixed(6)} / (${G} * T * T);
+    return c0 * pow(tanh(pow(k0d, 0.75)), 2.0 / 3.0);
+  }
+
   // xyz = displacement (xz: crest lean), w = foam
   // Twin of waves.js surfaceAt — keep numerically identical.
   float gPhase; // debug: max steep of any wave present at this point
@@ -446,8 +461,8 @@ export const WAVE_GLSL = /* glsl */ `
     for (int i = 0; i < ${MAX_TRAIN}; i++) {
       vec4 W = uTrain[i];
       if (W.y < 1e-4) continue;
-      float c = min(sqrt(${G} * d), W.w);
       float T = W.z / W.w;
+      float c = phaseSpeed(W.w, T, d);
       float L = max(max(c * T, 0.25 * W.z), 6.0);
       // cheap distance check FIRST — skip waves nowhere near this vertex
       float xi = (sPos - W.x) / L;

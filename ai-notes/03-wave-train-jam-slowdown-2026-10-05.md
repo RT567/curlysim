@@ -49,3 +49,14 @@ shoreline out); packs on every sandbank peak whose ±PACK_SPREAD fits between th
 148) plus one against the south headland (≈ 265); OUR_PACK = 0.4 of the crowd on your peak, the rest
 spread evenly. 40 reseats / 400 surfers: none > 60 m north of you; 175 in your pack, 66 at −240…0, 75 at
 0…200, 84 at 200…300; closest to you 7.2 m.
+
+## Wave speed from the real dispersion relation (same day)
+Rob felt waves moved "slightly too fast". They did: speed was min(√(g d), c0), right only in very shallow
+and deep water; in between (where waves approach the lineup) it ran up to 16% fast vs the exact linear
+dispersion ω² = g k tanh(k d). Now `phaseSpeed(c0, T, d)` = Fenton & McKee (1990): c = c0 ·
+tanh((k0 d)^¾)^⅔, k0 d = 4π² d / (g T²), within 1.6% of exact over T 5–18 s, d 0.25–40 m (checked with a
+bisection solver; note a naive fixed-point solver for tanh dispersion oscillates in shallow water). Used for
+crest motion (update), wavelength/shape (surfaceAt) and the GLSL twin. T = 6.5 s at 8 m: 8.86 → 7.78 m/s
+(exact 7.73). The train stays unjammed (default 9 waves, natural spacing).
+Also: `curlysim-dev` localStorage overrides now apply only with `?debug`, so a plain visit always runs on
+the live Open-Meteo conditions (verified: live page matched Open-Meteo current values exactly).
