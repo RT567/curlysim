@@ -47,3 +47,23 @@ at 58 / 142 / 276 m (capped above 2 m). Short-period breaks a little closer in, 
 - Tide (Open-Meteo sea_level_height_msl fetched, unused), second swell, sandbars/rips, crest bending via
   per-crest x-tables (research suggests a small texture), a trough in the rendered wave profile (faces are
   ~17% shorter than the physics height).
+
+## Day/night (same day, evening) — committed locally, NOT pushed
+- src/sky.js had "No night in this sim: hold a late-morning sun whenever the real sun is below 12 deg"
+  (added 2026-09-01 in Physics v2; Rob: he'd been working on it at night and wanted to see). Removed: the
+  real SunCalc sun now drives dawn, dusk and night.
+- Night made readable instead of black: night palette lifted for Sydney sky glow (fog 0x1a2330, sky ambient
+  0x34465e, ground 0x1a2228, deep water 0x10303c, shallow 0x1a4650), hemisphere light floor 0.3, moonlight
+  0.25·(0.3 + 0.7·moon fraction), and exposure 0.55 → 1.45 at night (main.js, "eyes adjust"). Verified at
+  10 pm Sydney (sun −37°): board, water gradient and swell lines visible under stars.
+
+## Next session — open items (also filed in bd)
+- Push the day/night change (Rob to confirm after seeing it at night/dusk).
+- Sandbars + rips: the 2018 LiDAR shows a weak trough (4.4 m @ ~200 m) / bar (3.8 m @ ~240 m) on the north
+  transect and a 2.5–3.5 m terrace 80–190 m out mid/south; raw profiles in curlcurl-bathymetry-2018-profiles.json.
+  Query recipe: NSW Marine LiDAR 2018 ArcGIS MapServer identify, layer 2 (see the seabed section above).
+- Tide: Open-Meteo sea_level_height_msl is fetched (conditions.js) but unused; Sydney range ~1.2–2 m.
+- Second swell (secondary_swell_* fetched, folded into Hs only).
+- Crest bending: per-crest 1-D x-tables (θ, phase ∫k cosθ dx) in a small texture (research §2).
+- Rendered wave has no trough: faces ~17% shorter than the physics height (1.2·H0 full height).
+- Optional: Dally-Dean-Dalrymple decay and setup/runup (research §6).

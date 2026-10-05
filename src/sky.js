@@ -26,25 +26,24 @@ function lerpColor(out, a, b, t) {
   return out.copy(a).lerp(b, THREE.MathUtils.clamp(t, 0, 1))
 }
 
-const HELD_SUN = { azimuth: (25 - 180) * DEG, altitude: 38 * DEG }
 
 const C = {
   sunHigh: new THREE.Color(0xfff4e0),
   sunLow: new THREE.Color(0xffb36b),
   fogDay: new THREE.Color(0xc8dbe4),
   fogDusk: new THREE.Color(0xe0a97e),
-  fogNight: new THREE.Color(0x10161f),
+  fogNight: new THREE.Color(0x1a2330), // Sydney sky glow: night is dark blue-grey, never black
   fogRain: new THREE.Color(0x8fa0aa),
   skyAmbDay: new THREE.Color(0xbdd8e6),
-  skyAmbNight: new THREE.Color(0x1a2433),
+  skyAmbNight: new THREE.Color(0x34465e),
   groundAmbDay: new THREE.Color(0x4d6157),
-  groundAmbNight: new THREE.Color(0x0d1214),
+  groundAmbNight: new THREE.Color(0x1a2228),
   deepDay: new THREE.Color(0x146072),
   deepGrey: new THREE.Color(0x3a545c),
-  deepNight: new THREE.Color(0x081820),
+  deepNight: new THREE.Color(0x10303c),
   shallowDay: new THREE.Color(0x41a89e),
   shallowGrey: new THREE.Color(0x54747a),
-  shallowNight: new THREE.Color(0x0e2a30),
+  shallowNight: new THREE.Color(0x1a4650),
 }
 
 export class SkySystem {
@@ -138,13 +137,10 @@ export class SkySystem {
     this._ephemeris(date)
     const sun = this._sun
     const moon = this._moon
-    let altDeg = sun.altitude / DEG
-    let sunPos = sun
-    // No night in this sim: when the real sun is down, hold a late-morning sun
-    if (altDeg < 12) {
-      altDeg = 38
-      sunPos = HELD_SUN
-    }
+    // the real sun for North Curl Curl at this moment: dawn, dusk and night follow the clock
+    // (an old rule held a late-morning sun whenever the real one was below 12 deg, so it was never night)
+    const altDeg = sun.altitude / DEG
+    const sunPos = sun
     const env = this.env
     env.sunAltitudeDeg = altDeg
 
@@ -197,7 +193,7 @@ export class SkySystem {
     this.sunLight.color.copy(env.sunColor).multiplyScalar(sunStrength > 0 ? 1 / Math.max(sunStrength, 0.05) : 1)
     this.hemi.color.copy(env.skyAmbient)
     this.hemi.groundColor.copy(env.groundAmbient)
-    this.hemi.intensity = 0.15 + 0.65 * day
+    this.hemi.intensity = 0.3 + 0.5 * day // night floor: sky glow keeps the water and waves readable
 
     // night dressing
     const night = 1 - day
@@ -212,7 +208,7 @@ export class SkySystem {
     if (night > 0.5 && moonUp) {
       // moonlight keeps the scene faintly readable
       this.sunLight.position.copy(moonDir).multiplyScalar(1000)
-      this.sunLight.intensity = 0.12 * moonFrac * (1 - cloud * 0.8)
+      this.sunLight.intensity = 0.25 * (0.3 + 0.7 * moonFrac) * (1 - cloud * 0.8)
       this.sunLight.color.set(0x9fb2d8)
       env.sunDir.copy(moonDir)
       if (env.sunDir.y < 0.02) env.sunDir.y = 0.02

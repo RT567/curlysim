@@ -134,6 +134,8 @@ renderer.setAnimationLoop(() => {
   quality.tick(dt)
   waveField.update(dt) // advance the wave train
   const env = sky.update(simDate(), state.conditions, pov.camera)
+  // eyes adjust in the dark: raise exposure at night so moonlit water and waves stay readable
+  renderer.toneMappingExposure = 0.55 + 0.9 * (1 - env.dayFactor)
   pov.update(dt, t)
   body.update(dt, t)
   ocean.update(t, pov.camera, env)
