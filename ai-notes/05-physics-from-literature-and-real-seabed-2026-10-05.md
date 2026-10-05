@@ -42,8 +42,8 @@ Result (10 s swell): biggest sets break at 36 / 96 / 231 m from the waterline fo
 at 58 / 142 / 276 m (capped above 2 m). Short-period breaks a little closer in, long-period further out.
 
 ## Open
-- Seat criterion: currently outside where set waves start to feather (+8 m); sitting just outside where they
-  BREAK (+~10 m) would be ~35-40 m closer on 1-2 m days. Rob to decide.
+- (Decided, same day) Seat criterion is now just outside where the biggest set waves BREAK: steep 0.95 +
+  10 m (LINEUP_STEEP / LINEUP_MARGIN). 10 s swell: sit 52 / 114 / 254 m for Hs 0.5 / 1 / 2 m (was 58/142/276).
 - Tide (Open-Meteo sea_level_height_msl fetched, unused), second swell, sandbars/rips, crest bending via
   per-crest x-tables (research suggests a small texture), a trough in the rendered wave profile (faces are
   ~17% shorter than the physics height).

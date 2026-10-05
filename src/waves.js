@@ -80,7 +80,10 @@ const SHORE_X = shorelineX(BANK_PEAK_Z) // the train travels along the bank's z 
 // (+-10%), so 1.3 Hs is the typical biggest wave of a set. The rare max
 // (~1.43 Hs) is deliberately NOT the design wave: it may stand up or break
 // right at you, as the odd clean-up set does in a real lineup.
-export const LINEUP_MARGIN = 8 // m seaward of the onset
+export const LINEUP_MARGIN = 10 // m seaward of where the biggest set waves break
+// Rob (2026-10-05): sit just outside where the set waves BREAK (steep 0.95, white water starting), like
+// real surfers, rather than outside where they first start to feather (0.8), which was ~35-40 m further out
+const LINEUP_STEEP = 0.95
 const LINEUP_SET_F = 1.3
 // Above ~2 m (a six-foot day by surfers' back-measure) Curl Curl closes out and nobody paddles further:
 // the seat stops moving out at this swell height while the waves keep breaking further out.
@@ -267,7 +270,7 @@ export class WaveField {
         0.12
       )
       const hFull = Math.min(this.hs, LINEUP_HS_CAP) * LINEUP_SET_F * shoalK(T, d)
-      if (hFull / (godaHb(1.56 * T * T, d, slope, GODA_A) * (1 + 0.15 * windT)) >= STEEP_LEAN) return x
+      if (hFull / (godaHb(1.56 * T * T, d, slope, GODA_A) * (1 + 0.15 * windT)) >= LINEUP_STEEP) return x
     }
     return shore // nothing goes nonlinear before the sand (tiny swell)
   }
