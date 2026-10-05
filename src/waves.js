@@ -33,7 +33,8 @@ const D_REF = 12 // depth (m) beyond which shoaling is negligible
 // set of plane crests along meanDir, so this is applied once, in rebuild().
 export const SWELL_ANGLE_FACTOR = 0.25
 const SPAWN_X = 680 // waves are born this far out
-const DIE_X = -14 // waves run up the beach as swash before dying
+const DIE_X = -14 // m past the local shoreline: waves run up the beach as swash, then die
+const SHORE_X = shorelineX(BANK_PEAK_Z) // the train travels along the bank's z line
 
 // Lineup placement (see nonlinearOnsetX): sit this far outside the zone where
 // waves stop being clean linear swell. Set waves are dealt at 1.05/1.3/1.1 x Hs
@@ -128,16 +129,21 @@ export class WaveField {
       const d = this.depthAt(x, BANK_PEAK_Z)
       const c = Math.min(Math.sqrt(G * d), w.c0)
       w.s += c * dt
-      // queue behind the wave ahead — crests never overtake and merge
+      // queue behind the wave ahead so crests never overtake and merge. The gap
+      // is a fraction of the LOCAL wavelength c*T: crests bunch up naturally in
+      // shallow water, and a deep-water gap (0.3 L0) held every wave behind the
+      // near-shore ones, jamming the whole train at minimum spacing out to sea
+      // (2-3x the live waves, up to MAX_TRAIN, every one costing per vertex).
+      // A wave already up the sand is invisible swash and holds nobody back.
       const ahead = this.waves[i - 1]
-      if (ahead) w.s = Math.min(w.s, ahead.s - 0.3 * w.L0)
+      if (ahead && this._xAt(ahead.s) > SHORE_X) w.s = Math.min(w.s, ahead.s - 0.3 * c * (w.L0 / w.c0))
       // breaking dissipates energy (20-60% per plunge): while this wave is
       // over its depth limit, bleed height so it reforms SMALLER in the trough
       const green = Math.min(Math.pow(D_REF / Math.max(d, 0.4), 0.25), 2.2)
       if ((1.2 * w.H0 * w.E * green) / (0.9 * d) > 1) {
         w.E = Math.max(w.E * (1 - 0.45 * dt), 0.3)
       }
-      if (this._xAt(w.s) < DIE_X) this.waves.splice(i, 1)
+      if (this._xAt(w.s) < SHORE_X + DIE_X) this.waves.splice(i, 1)
       else furthestOut = Math.max(furthestOut, x)
     }
     // spawn the next wave one wavelength behind the last one
