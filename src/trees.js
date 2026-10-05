@@ -50,7 +50,7 @@ export class Trees {
       x,
       y,
       z,
-      s: 0.7 + Math.random() * 0.8,
+      s: 1.1 + Math.random() * 1.1, // 11-22 m: coastal Norfolk pines and eucalypts (cone is 10 m at s = 1)
       phase: Math.random() * Math.PI * 2,
       rate: 1.0 + Math.random() * 0.7,
     }

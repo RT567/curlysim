@@ -67,8 +67,9 @@ const FRAG = /* glsl */ `
     float under = smoothstep(0.05, -0.2, n.y);
     base = mix(base, base * vec3(0.45, 0.72, 0.66), under);
 
-    // foam DISABLED for now (wave-train foam, shore wash, whitecaps all off)
-    float foam = 0.0;
+    // light foam: feathering crests (from the onset of steepening) and white water on broken waves,
+    // capped well short of solid white so the water still reads underneath
+    float foam = 0.6 * smoothstep(0.0, 1.0, vFoam);
     base = mix(base, uFoamColor, foam);
 
     // phase debug tint: yellow = standing, orange = breaking, red = bore
@@ -117,6 +118,7 @@ export class Ocean {
     this.waveField = waveField
     this.uniforms = {
       uTrain: { value: waveField.uT }, // live reference: CPU writes, GPU reads
+      uGodaA: { value: waveField.uA }, // per-wave Goda breaking coefficient, same live reference
       uSwellDir: { value: new THREE.Vector2(-1, 0) },
       uWindU: { value: 0 },
       uPhaseDebug: { value: 0 }, // wave-phase tint; toggled from the ?debug panel

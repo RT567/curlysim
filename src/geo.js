@@ -41,12 +41,9 @@ export function fromDirToVec(fromDeg) {
 // seaward (shorelineX). Everything cross-shore is measured from that local
 // shoreline, xs = x - shorelineX(z) (+ = seaward), and the ground elevation
 // is the single function beachElevation(xs), the same at every z:
-//   xs >= 0  (sea floor):  -(SHELF*xs + (SHORE-SHELF)*BLEND_L*(1 - exp(-xs/BLEND_L)))
-//   xs <  0  (beach face): BERM_H * (1 - exp(SHORE*xs / BERM_H))
-// Smooth (C1) through the waterline, monotonic, 0 exactly at the shoreline.
-// Sea-floor slope 1:14 at the waterline, ~1:20 at 80 m, ~1:26 at 150 m,
-// ~1:34 at 250 m, easing to 1:50 on the shelf. Depth 1.7 m at 25 m out,
-// 3.2 at 50, 5.8 at 100, 7.9 at 150, 11.3 at 250, ~21 at the wave spawn.
+//   xs >= 0  (sea floor):  -(DEAN_A (xs + X0)^(2/3) - DEAN_A X0^(2/3))   (Dean profile, see DEAN_A)
+//   xs <  0  (beach face): BERM_H * (1 - exp(FACE_SLOPE*xs / BERM_H))
+// Smooth (C1) through the waterline (slope FACE_SLOPE both sides), monotonic, 0 exactly at the shoreline.
 // Users: waves.js depthAt + its GLSL twin (wave physics, onset/lineup search),
 // terrain.js terrainHeight (visible beach + sea floor; dunes, hills and
 // headland cliffs are added on top only inland of the waterline).
@@ -73,9 +70,14 @@ export const NORTH_SEAT_LIMIT_Z = NORTH_WALL_Z + 115
 // shoreline out to its rocks (~z 300): the far end of the surfable beach
 export const SOUTH_SEAT_LIMIT_Z = HEADLANDS[0].z - 1.75 * HEADLANDS[0].sz
 
-export const SHORE_SLOPE = 1 / 14
-export const SHELF_SLOPE = 1 / 50
-export const BLEND_L = 150 // m: surf-zone slope eases to the shelf over this
+// Sea floor: Dean's equilibrium profile h = A x^(2/3) for the northern beaches' medium sand (d50 ~0.35 mm,
+// fall speed ~4.6 cm/s -> A = 0.067 ws^0.44 = 0.13 m^(1/3); Dean 1987), shifted by DEAN_X0 so its slope
+// at the waterline is a 1:10 beach face instead of infinite. Depth 1.7 m at 50 m, 2.7 at 100, 4.4 at 200,
+// 7.0 at 400, 11.2 at 800 m out.
+export const DEAN_A = 0.13
+export const FACE_SLOPE = 1 / 10
+const DEAN_X0 = Math.pow(((2 / 3) * DEAN_A) / FACE_SLOPE, 3) // where the Dean slope equals FACE_SLOPE
+const DEAN_H0 = DEAN_A * Math.pow(DEAN_X0, 2 / 3)
 export const BERM_H = 1.8 // m: beach face levels off at this height
 
 // still-water shoreline x at this z (headlands push it seaward)
@@ -92,8 +94,8 @@ export function shorelineX(z) {
 
 // ground elevation (m, 0 = still water) at xs metres seaward of the shoreline
 export function beachElevation(xs) {
-  if (xs >= 0) return -(SHELF_SLOPE * xs + (SHORE_SLOPE - SHELF_SLOPE) * BLEND_L * (1 - Math.exp(-xs / BLEND_L)))
-  return BERM_H * (1 - Math.exp((SHORE_SLOPE * xs) / BERM_H))
+  if (xs >= 0) return -(DEAN_A * Math.pow(xs + DEAN_X0, 2 / 3) - DEAN_H0)
+  return BERM_H * (1 - Math.exp((FACE_SLOPE * xs) / BERM_H))
 }
 
 // still-water depth (>= 0) at a world point
@@ -113,7 +115,7 @@ export const SEABED_GLSL = /* glsl */ `
   }
   float seaDepth(vec2 p) {
     float xs = max(p.x - shorelineX(p.y), 0.0);
-    return ${SHELF_SLOPE.toFixed(6)} * xs + ${((SHORE_SLOPE - SHELF_SLOPE) * BLEND_L).toFixed(6)} * (1.0 - exp(-xs / ${BLEND_L.toFixed(1)}));
+    return ${DEAN_A.toFixed(6)} * pow(xs + ${DEAN_X0.toFixed(6)}, 0.6666667) - ${DEAN_H0.toFixed(6)};
   }
 `
 

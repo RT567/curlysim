@@ -154,9 +154,10 @@ export function buildTerrain(scene) {
 
   // clubhouses + cafe
   // North Curly SLSC sits practically on the sand
-  const northSLSC = makeBuilding(16, 5, 9, 0xf2ead8, 0xb0543f)
+  // surf clubs: two-storey, ~8 m to the roof and ~25 m long, like the real North/South Curl Curl SLSCs
+  const northSLSC = makeBuilding(26, 8, 12, 0xf2ead8, 0xb0543f)
   northSLSC.position.set(-11, terrainHeight(-11, -430), -430)
-  const southSLSC = makeBuilding(15, 5, 9, 0xe8e2d2, 0x7a6f5f)
+  const southSLSC = makeBuilding(24, 8, 12, 0xe8e2d2, 0x7a6f5f)
   southSLSC.position.set(-26, terrainHeight(-26, 480), 480)
   const cafe = makeBuilding(8, 3.4, 6, 0xdcd6c4, 0x4f5a63)
   cafe.position.set(-22, terrainHeight(-22, 528), 528)
