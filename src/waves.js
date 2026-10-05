@@ -33,7 +33,7 @@ const D_REF = 12 // depth (m) beyond which shoaling is negligible
 // set of plane crests along meanDir, so this is applied once, in rebuild().
 export const SWELL_ANGLE_FACTOR = 0.25
 const SPAWN_X = 680 // waves are born this far out
-const DIE_X = -14 // m past the local shoreline: waves run up the beach as swash, then die
+const DIE_X = -14 // world x where a wave is removed, after running up the beach as swash
 const SHORE_X = shorelineX(BANK_PEAK_Z) // the train travels along the bank's z line
 
 // Lineup placement (see nonlinearOnsetX): sit this far outside the zone where
@@ -143,7 +143,10 @@ export class WaveField {
       if ((1.2 * w.H0 * w.E * green) / (0.9 * d) > 1) {
         w.E = Math.max(w.E * (1 - 0.45 * dt), 0.3)
       }
-      if (this._xAt(w.s) < SHORE_X + DIE_X) this.waves.splice(i, 1)
+      // removed at a fixed world x: the crests span the whole beach, and mid-beach the shoreline is only
+      // 3-17 m out, so dying relative to the bank's shoreline popped visible waves there. Crawling up the
+      // sand at the bank no longer jams anything (it holds nobody back, above).
+      if (this._xAt(w.s) < DIE_X) this.waves.splice(i, 1)
       else furthestOut = Math.max(furthestOut, x)
     }
     // spawn the next wave one wavelength behind the last one
