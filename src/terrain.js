@@ -87,6 +87,7 @@ function buildPatch(x0, x1, z0, z1, nx, nz, yOffset = 0) {
     pos.setY(i, terrainHeight(pos.getX(i), pos.getZ(i)) + yOffset)
   }
   const flat = geo.toNonIndexed()
+  flat.deleteAttribute('uv') // untextured: uv would only cost memory
   flat.computeVertexNormals()
   // crisp per-facet colors from the triangle centroid
   const p = flat.attributes.position

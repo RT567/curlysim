@@ -11,16 +11,22 @@ const DEG = Math.PI / 180
 
 // suncalc azimuth is measured from SOUTH, positive toward the west.
 // Compass bearing = azimuth + 180deg.
-function celestialToWorld(pos) {
+function celestialToWorld(pos, out = new THREE.Vector3()) {
   const bearing = pos.azimuth / DEG + 180
   const a = (bearing - BEACH_FACING) * DEG
   const cosAlt = Math.cos(pos.altitude)
-  return new THREE.Vector3(Math.cos(a) * cosAlt, Math.sin(pos.altitude), Math.sin(a) * cosAlt)
+  return out.set(Math.cos(a) * cosAlt, Math.sin(pos.altitude), Math.sin(a) * cosAlt)
 }
+
+// sun and moon barely move in a second: recompute the ephemeris at most once
+// a second (sim time) instead of every frame
+const EPHEMERIS_MS = 1000
 
 function lerpColor(out, a, b, t) {
   return out.copy(a).lerp(b, THREE.MathUtils.clamp(t, 0, 1))
 }
+
+const HELD_SUN = { azimuth: (25 - 180) * DEG, altitude: 38 * DEG }
 
 const C = {
   sunHigh: new THREE.Color(0xfff4e0),
@@ -113,17 +119,31 @@ export class SkySystem {
       dayFactor: 1,
     }
     this._tmp = new THREE.Color()
+    this._sunDir = new THREE.Vector3()
+    this._skySun = new THREE.Vector3()
+    this._moonDir = new THREE.Vector3()
+    this._ephT = NaN
+  }
+
+  _ephemeris(date) {
+    const ms = date.getTime()
+    if (Math.abs(ms - this._ephT) < EPHEMERIS_MS) return
+    this._ephT = ms
+    this._sun = SunCalc.getPosition(date, LAT, LON)
+    this._moon = SunCalc.getMoonPosition(date, LAT, LON)
+    this._moonFrac = SunCalc.getMoonIllumination(date).fraction
   }
 
   update(date, conditions, camera) {
-    const sun = SunCalc.getPosition(date, LAT, LON)
-    const moon = SunCalc.getMoonPosition(date, LAT, LON)
+    this._ephemeris(date)
+    const sun = this._sun
+    const moon = this._moon
     let altDeg = sun.altitude / DEG
     let sunPos = sun
     // No night in this sim: when the real sun is down, hold a late-morning sun
     if (altDeg < 12) {
       altDeg = 38
-      sunPos = { azimuth: (25 - 180) * DEG, altitude: 38 * DEG }
+      sunPos = HELD_SUN
     }
     const env = this.env
     env.sunAltitudeDeg = altDeg
@@ -135,8 +155,8 @@ export class SkySystem {
     env.dayFactor = day
 
     // sky dome: keep the shader sun from sinking too far below the horizon
-    const sunDir = celestialToWorld(sunPos)
-    const skySun = sunDir.clone()
+    const sunDir = celestialToWorld(sunPos, this._sunDir)
+    const skySun = this._skySun.copy(sunDir)
     skySun.y = Math.max(skySun.y, -0.08)
     this.sky.material.uniforms.sunPosition.value.copy(skySun)
     this.sky.material.uniforms.turbidity.value = 6 + cloud * 8 + (raining ? 6 : 0)
@@ -184,10 +204,10 @@ export class SkySystem {
     this.nightDome.material.opacity = night * 0.92
     this.stars.material.opacity = night * (1 - cloud * 0.85)
     const moonUp = moon.altitude > 0
-    const moonDir = celestialToWorld(moon)
+    const moonDir = celestialToWorld(moon, this._moonDir)
     this.moon.position.copy(camera.position).addScaledVector(moonDir, 7800)
     this.moon.lookAt(camera.position)
-    const moonFrac = SunCalc.getMoonIllumination(date).fraction
+    const moonFrac = this._moonFrac
     this.moon.material.opacity = (moonUp ? 1 : 0) * night * (0.35 + 0.6 * moonFrac) * (1 - cloud * 0.8)
     if (night > 0.5 && moonUp) {
       // moonlight keeps the scene faintly readable

@@ -54,6 +54,8 @@ export class POVCamera {
     this.tiltPitch = 0
     this.tiltRoll = 0
 
+    this._n = { x: 0, y: 1, z: 0 } // scratch normal
+
     this._bindPointer(dom)
   }
 
@@ -156,7 +158,7 @@ export class POVCamera {
 
     // horizontal position stays fixed: only the vertical rides the water
     // gentle deck tilt from the smoothed wave normal, clamped to a few degrees
-    const n = wf.normalAt(this.seatX, this.seatZ, t, 3)
+    const n = wf.normalAt(this.seatX, this.seatZ, t, 3, this._n)
     const maxTilt = 0.03
     const targetPitch = THREE.MathUtils.clamp(-n.x * 0.5, -maxTilt, maxTilt)
     const targetRoll = THREE.MathUtils.clamp(n.z * 0.35, -maxTilt, maxTilt)

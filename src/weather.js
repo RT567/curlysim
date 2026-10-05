@@ -93,21 +93,24 @@ export class Weather {
 
     if (this.rain.visible) {
       const pos = this.rainGeo.attributes.position
+      const arr = pos.array
       const fall = 22 * dt
       const wx = (this.windVec?.x ?? 0) * this.windMs * 0.7 * dt
       const wz = (this.windVec?.z ?? 0) * this.windMs * 0.7 * dt
-      for (let i = 0; i < RAIN_COUNT; i++) {
-        let y = pos.getY(i) - fall
+      const hw = RAIN_BOX.w / 2
+      const hd = RAIN_BOX.d / 2
+      for (let i = 0; i < arr.length; i += 3) {
+        let x = arr[i] + wx
+        let y = arr[i + 1] - fall
+        let z = arr[i + 2] + wz
         if (y < 0) y += RAIN_BOX.h
-        pos.setY(i, y)
-        let x = pos.getX(i) + wx
-        let z = pos.getZ(i) + wz
-        if (x > RAIN_BOX.w / 2) x -= RAIN_BOX.w
-        if (x < -RAIN_BOX.w / 2) x += RAIN_BOX.w
-        if (z > RAIN_BOX.d / 2) z -= RAIN_BOX.d
-        if (z < -RAIN_BOX.d / 2) z += RAIN_BOX.d
-        pos.setX(i, x)
-        pos.setZ(i, z)
+        if (x > hw) x -= RAIN_BOX.w
+        if (x < -hw) x += RAIN_BOX.w
+        if (z > hd) z -= RAIN_BOX.d
+        if (z < -hd) z += RAIN_BOX.d
+        arr[i] = x
+        arr[i + 1] = y
+        arr[i + 2] = z
       }
       pos.needsUpdate = true
       this.rain.position.set(camera.position.x, camera.position.y - 10, camera.position.z)

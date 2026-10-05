@@ -12,11 +12,12 @@ import { Surfers } from './surfers.js'
 import { POVCamera } from './camera.js'
 import { Body } from './body.js'
 import { fetchConditions, DEFAULT_CONDITIONS } from './conditions.js'
+import { QUALITY, AdaptiveQuality } from './quality.js'
 
 const app = document.getElementById('app')
 
 const renderer = new THREE.WebGLRenderer({ antialias: true })
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.setPixelRatio(QUALITY.pixelRatio) // capped lower on phones (quality.js)
 renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.toneMappingExposure = 0.55
 app.appendChild(renderer.domElement)
@@ -100,6 +101,7 @@ window.curlysim = {
   ocean,
   scene,
   renderer,
+  quality: null,
   setDev(o) {
     localStorage.setItem('curlysim-dev', JSON.stringify(o))
     state.overrides = o
@@ -121,10 +123,14 @@ function resize() {
 window.addEventListener('resize', resize)
 resize()
 
+const quality = new AdaptiveQuality(renderer, resize)
+window.curlysim.quality = quality
+
 const clock = new THREE.Clock()
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta()
   const t = clock.elapsedTime
+  quality.tick(dt)
   waveField.update(dt) // advance the wave train
   const env = sky.update(simDate(), state.conditions, pov.camera)
   pov.update(dt, t)

@@ -79,8 +79,10 @@ export const BERM_H = 1.8 // m: beach face levels off at this height
 export function shorelineX(z) {
   let shift = 0
   for (const hd of HEADLANDS) {
-    const m = Math.exp(-((z - hd.z) ** 2) / (2 * hd.sz * hd.sz))
-    shift = Math.max(shift, hd.sea * Math.pow(m, 0.7))
+    // sea * gauss^0.7, folded into one exp (as in the GLSL twin): this runs
+    // several times per surface sample, for every surfer, every frame
+    const dz = z - hd.z
+    shift = Math.max(shift, hd.sea * Math.exp((-0.7 * dz * dz) / (2 * hd.sz * hd.sz)))
   }
   return shift
 }

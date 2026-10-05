@@ -5,17 +5,22 @@
 import * as THREE from 'three'
 import { WAVE_GLSL, MAX_TRAIN } from './waves.js'
 import { BANK_PEAK_Z } from './geo.js'
+import { QUALITY } from './quality.js'
 
 const VERT = /* glsl */ `
   ${WAVE_GLSL}
   varying vec3 vWorldPos;
   varying float vFoam;
   varying float vPhase;
+  varying float vDepth;
   void main() {
     vec2 p = position.xz;
     vec4 sf = surf(p);
     vec3 wp = vec3(p.x + sf.x, position.y + sf.y, p.y + sf.z);
     vWorldPos = wp;
+    // still-water depth under the displaced point, per vertex: smooth at the
+    // facet scale, and saves the seabed function per pixel
+    vDepth = depthAt(wp.xz);
     vFoam = sf.w;
     vPhase = gPhase;
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
@@ -39,13 +44,14 @@ const FRAG = /* glsl */ `
   varying vec3 vWorldPos;
   varying float vFoam;
   varying float vPhase;
+  varying float vDepth;
 
   void main() {
     // derivative normal faces the viewer, so overhanging lip undersides get a
     // real orientation instead of being flipped upright
     vec3 n = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
     float x = vWorldPos.x;
-    float d = depthAt(vWorldPos.xz);
+    float d = vDepth;
 
     // shading normal slightly exaggerated so facets read
     vec3 ns = normalize(vec3(n.x * 3.0, n.y, n.z * 3.0));
@@ -133,31 +139,48 @@ export class Ocean {
       uniforms: this.uniforms,
     })
 
-    // near field: fine facets around the lineup (x -20..500, z -640..120)
-    const near = new THREE.PlaneGeometry(520, 760, 460, 640)
-    near.rotateX(-Math.PI / 2)
-    near.translate(240, 0, BANK_PEAK_Z + 40)
-    this.meshNear = new THREE.Mesh(near, this.material)
-    this.meshNear.frustumCulled = false
-    scene.add(this.meshNear)
-
-    // far field: coarse strips forming a FRAME around the near tier — they
-    // never overlap it, so coarse triangles can never poke through steep faces
-    const strip = (x0, x1, z0, z1, nx, nz) => {
-      const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0, nx, nz)
-      g.rotateX(-Math.PI / 2)
-      g.translate((x0 + x1) / 2, -0.08, (z0 + z1) / 2)
-      const m = new THREE.Mesh(g, this.material)
-      m.frustumCulled = false
-      scene.add(m)
-      return m
-    }
-    this.farStrips = [
-      strip(500, 2880, -2600, 2300, 240, 260), // out to sea (smooth swell)
-      strip(-20, 500, -2900, -640, 130, 420), // north: carries visible surf
-      strip(-20, 500, 120, 2300, 130, 320), // south: carries visible surf
-    ]
+    // near field: fine facets around the lineup (x -20..500, z -640..120);
+    // far field: coarse strips forming a FRAME around the near tier. They
+    // never overlap it, so coarse triangles can never poke through steep
+    // faces. Each tier is cut into tiles so the ones outside the view are
+    // culled (the vertex shader is the expensive part); tile edges share
+    // bit-identical vertices, so there are no seams. QUALITY.ocean thins the
+    // grids on phones.
+    const r = QUALITY.ocean
+    this.meshes = []
+    const nz0 = BANK_PEAK_Z - 340 // -640
+    this._tier(-20, 500, nz0, nz0 + 760, 460 * r, 640 * r, 0, 4, 6) // near
+    this._tier(500, 2880, -2600, 2300, 240 * r, 260 * r, -0.08, 3, 3) // out to sea (smooth swell)
+    this._tier(-20, 500, -2900, -640, 130 * r, 420 * r, -0.08, 1, 3) // north: carries visible surf
+    this._tier(-20, 500, 120, 2300, 130 * r, 320 * r, -0.08, 1, 3) // south: carries visible surf
+    for (const m of this.meshes) scene.add(m)
     this.syncWaves()
+  }
+
+  // a flat grid of nx x nz cells over [x0,x1] x [z0,z1] at height y, split
+  // into tx x tz tiles. Only positions: the shader needs nothing else.
+  _tier(x0, x1, z0, z1, nx, nz, y, tx, tz) {
+    nx = Math.max(Math.round(nx), tx)
+    nz = Math.max(Math.round(nz), tz)
+    const dx = (x1 - x0) / nx
+    const dz = (z1 - z0) / nz
+    for (let a = 0; a < tx; a++) {
+      for (let b = 0; b < tz; b++) {
+        const i0 = Math.round((nx * a) / tx)
+        const i1 = Math.round((nx * (a + 1)) / tx)
+        const k0 = Math.round((nz * b) / tz)
+        const k1 = Math.round((nz * (b + 1)) / tz)
+        const g = gridTile(x0, z0, dx, dz, i0, i1, k0, k1, y)
+        // waves lift the surface up to ~20 m and lean crests a few metres
+        // shoreward: pad the bounds so a tile is never culled while visible
+        g.boundingBox = new THREE.Box3(
+          new THREE.Vector3(x0 + i0 * dx - PAD, -PAD, z0 + k0 * dz - PAD),
+          new THREE.Vector3(x0 + i1 * dx + PAD, PAD, z0 + k1 * dz + PAD)
+        )
+        g.boundingSphere = g.boundingBox.getBoundingSphere(new THREE.Sphere())
+        this.meshes.push(new THREE.Mesh(g, this.material))
+      }
+    }
   }
 
   syncWaves() {
@@ -179,4 +202,44 @@ export class Ocean {
       this.uniforms.uWhitecaps.value = env.whitecaps
     }
   }
+}
+
+const PAD = 25 // m: tile bounds padding for wave displacement
+
+// cells [i0,i1) x [k0,k1) of a global grid; vertex (i, k) sits at
+// (x0 + i dx, z0 + k dz) computed from the GLOBAL indices, so neighbouring
+// tiles produce identical edge vertices. Same triangulation (and diagonal) as
+// a PlaneGeometry rotated flat, facing up.
+function gridTile(x0, z0, dx, dz, i0, i1, k0, k1, y) {
+  const cols = i1 - i0 + 1
+  const rows = k1 - k0 + 1
+  const pos = new Float32Array(cols * rows * 3)
+  let p = 0
+  for (let k = k0; k <= k1; k++) {
+    for (let i = i0; i <= i1; i++) {
+      pos[p++] = x0 + i * dx
+      pos[p++] = y
+      pos[p++] = z0 + k * dz
+    }
+  }
+  const idx = new (cols * rows > 65535 ? Uint32Array : Uint16Array)((cols - 1) * (rows - 1) * 6)
+  let q = 0
+  for (let k = 0; k < rows - 1; k++) {
+    for (let i = 0; i < cols - 1; i++) {
+      const a = k * cols + i // (i, k)
+      const b = (k + 1) * cols + i // (i, k+1)
+      const c = (k + 1) * cols + i + 1 // (i+1, k+1)
+      const d = k * cols + i + 1 // (i+1, k)
+      idx[q++] = a
+      idx[q++] = b
+      idx[q++] = d
+      idx[q++] = b
+      idx[q++] = c
+      idx[q++] = d
+    }
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  g.setIndex(new THREE.BufferAttribute(idx, 1))
+  return g
 }

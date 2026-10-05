@@ -7,7 +7,7 @@
 import * as THREE from 'three'
 import { BANK_PEAK_Z, BANK_WAVELENGTH, fromDirToVec, NORTH_SEAT_LIMIT_Z, shorelineX } from './geo.js'
 import { makeBoard } from './board.js'
-import { makeLegs, BODY, MATERIALS } from './body.js'
+import { legParts, mergeParts, BODY, MATERIALS } from './body.js'
 
 const MAX_SURFERS = 20 // busiest it gets (was 14)
 const MIN_SURFERS = 1 // always someone out: a body + board for scale
@@ -56,20 +56,33 @@ export function crowdModel(conditions, faceHeight, date, sunAltitudeDeg) {
   return { count: THREE.MathUtils.clamp(count, MIN_SURFERS, MAX_SURFERS), quality }
 }
 
+const _n = { x: 0, y: 1, z: 0 } // scratch normal
 const BOARD_COLORS = [0xf2f0e8, 0xe8b84b, 0x7fc4d8, 0xd87f6a, 0x9fd88f]
-const TORSO_GEO = new THREE.BoxGeometry(0.3, 0.58, 0.26)
-const HEAD_GEO = new THREE.IcosahedronGeometry(0.12, 0)
-
 // Same board and legs as the viewer (board.js / body.js), so every board in
 // the lineup is the same true-size measuring stick. Origin = seat on the deck.
+// Legs + torso share one wetsuit geometry and feet + head one skin geometry,
+// so a surfer is 4 draw calls (hull, stringer, wetsuit, skin).
+let crowdGeo = null
+function crowdGeometry() {
+  if (crowdGeo) return crowdGeo
+  const { wetsuit, skin } = legParts()
+  const torso = new THREE.BoxGeometry(0.3, 0.58, 0.26)
+  torso.translate(0, 0.34, 0.04)
+  const head = new THREE.IcosahedronGeometry(0.12, 0)
+  head.translate(0, 0.8, 0.02) // eye ~0.8 m above the deck, like ours
+  crowdGeo = { wetsuit: mergeParts([...wetsuit, torso]), skin: mergeParts([...skin, head]) }
+  return crowdGeo
+}
+
 function makeSurfer() {
   const g = new THREE.Group() // position + water tilt
   const yaw = new THREE.Group() // heading
-  const torso = new THREE.Mesh(TORSO_GEO, MATERIALS.WETSUIT)
-  torso.position.set(0, 0.34, 0.04)
-  const head = new THREE.Mesh(HEAD_GEO, MATERIALS.SKIN)
-  head.position.set(0, 0.8, 0.02) // eye ~0.8 m above the deck, like ours
-  yaw.add(makeBoard(BOARD_COLORS[(Math.random() * BOARD_COLORS.length) | 0]), makeLegs(), torso, head)
+  const geo = crowdGeometry()
+  yaw.add(
+    makeBoard(BOARD_COLORS[(Math.random() * BOARD_COLORS.length) | 0]),
+    new THREE.Mesh(geo.wetsuit, MATERIALS.WETSUIT),
+    new THREE.Mesh(geo.skin, MATERIALS.SKIN)
+  )
   g.add(yaw)
   g.userData.yaw = yaw
   return g
@@ -117,20 +130,24 @@ export class Surfers {
 
   // the viewer's lineup distance from the shore, applied at this z (the
   // coast curves toward the north headland, so band x follows the shoreline)
-  _bandX(z) {
-    const vz = this.pov.seatZ
-    const lineFromShore = this.pov.lineupX(vz) - shorelineX(vz)
+  _bandX(z, lineFromShore = this._lineFromShore()) {
     const x = shorelineX(z) + lineFromShore + THREE.MathUtils.randFloatSpread(2 * LINEUP_BAND)
     return Math.min(x, 470)
   }
 
+  // (runs the lineup search, so callers placing many surfers pass it in)
+  _lineFromShore() {
+    const vz = this.pov.seatZ
+    return this.pov.lineupX(vz) - shorelineX(vz)
+  }
+
   // put the buddy (surfer 0) BUDDY_R up or down the beach from the viewer, in
   // the band; `side` (+1/-1 along z) picks which way, random by default
-  _seatBuddy(side = Math.random() < 0.5 ? -1 : 1) {
+  _seatBuddy(side = Math.random() < 0.5 ? -1 : 1, line = this._lineFromShore()) {
     const s = this.surfers[0]
     let z = this.pov.seatZ + side * THREE.MathUtils.randFloat(BUDDY_R[0], BUDDY_R[1])
     if (z < NORTH_SEAT_LIMIT_Z) z = this.pov.seatZ + Math.abs(z - this.pov.seatZ) // no room north: go south
-    s.userData.home = { x: this._bandX(z), z }
+    s.userData.home = { x: this._bandX(z, line), z }
     s.userData.yaw.rotation.y = this._heading()
   }
 
@@ -152,7 +169,8 @@ export class Surfers {
     const northCorner = kn > 9 && windVec.z > 0.35 && windVec.x < 0.2
 
     for (let i = 0; i < MAX_SURFERS; i++) this.surfers[i].visible = i < count
-    this._seatBuddy()
+    const line = this._lineFromShore()
+    this._seatBuddy(undefined, line)
     const placed = [this.surfers[0].userData.home]
     const vz = this.pov.seatZ
     for (let i = 1; i < count; i++) {
@@ -177,7 +195,7 @@ export class Surfers {
         if (placed.every((p) => Math.abs(p.z - z) > SURFER_GAP)) break
       }
       // the same band as the viewer: just outside the break at this z
-      const home = { x: this._bandX(z), z }
+      const home = { x: this._bandX(z, line), z }
       placed.push(home)
       s.userData.home = home
       s.userData.seat = { ...home }
@@ -208,7 +226,7 @@ export class Surfers {
       const { x, z } = s.userData.seat
       const y = wf.heightAt(x, z, t)
       s.position.set(x, y + BODY.deckY + Math.sin(t * 1.3 + s.userData.phase) * 0.03, z)
-      const n = wf.normalAt(x, z, t, 2)
+      const n = wf.normalAt(x, z, t, 2, _n)
       s.rotation.set(THREE.MathUtils.clamp(n.z * 0.8, -0.2, 0.2), 0, THREE.MathUtils.clamp(-n.x * 0.8, -0.2, 0.2))
     }
   }

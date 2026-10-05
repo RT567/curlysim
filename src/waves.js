@@ -241,7 +241,7 @@ export class WaveField {
   //   P = (xi_eff - 0.4)/0.8                          -> spill..plunge 0..1
   //   lip rotation angle & throw scale with P; bore decays to ~0.4 d and
   //   REFORMS automatically when it runs into deeper water (channel/trough).
-  surfaceAt(x, z) {
+  surfaceAt(x, z, out = {}) {
     const d = this.depthAt(x, z)
     // waves persist onto the sand (swash) and fade over the last berm metres
     const xs = x - shorelineX(z) // metres seaward of the local shoreline
@@ -318,11 +318,16 @@ export class WaveField {
     // ankle height so it can never surface through low terrain inland);
     // swash pulses lift it above the sand so the water's edge runs up/recedes
     const swashBed = Math.min(Math.max(-xs, 0) * 0.035, 0.22) - 0.06
-    return { y: Math.max(y * shore, swashBed), foam: Math.min(foam, 1) * shore, leanX, leanZ }
+    out.y = Math.max(y * shore, swashBed)
+    out.foam = Math.min(foam, 1) * shore
+    out.leanX = leanX
+    out.leanZ = leanZ
+    return out
   }
 
+  // per-frame callers (camera, body, crowd): no allocation
   heightAt(x, z, _t) {
-    return this.surfaceAt(x, z).y
+    return this.surfaceAt(x, z, _scratch).y
   }
 
   // --- diagnostics (dev console + agent probing; not used by rendering) ---
@@ -377,16 +382,22 @@ export class WaveField {
     return rows
   }
 
-  normalAt(x, z, t, eps = 2.0) {
+  normalAt(x, z, t, eps = 2.0, out = {}) {
     const hx1 = this.heightAt(x + eps, z, t)
     const hx0 = this.heightAt(x - eps, z, t)
     const hz1 = this.heightAt(x, z + eps, t)
     const hz0 = this.heightAt(x, z - eps, t)
-    const n = { x: (hx0 - hx1) / (2 * eps), y: 1, z: (hz0 - hz1) / (2 * eps) }
-    const l = Math.hypot(n.x, n.y, n.z)
-    return { x: n.x / l, y: n.y / l, z: n.z / l }
+    const nx = (hx0 - hx1) / (2 * eps)
+    const nz = (hz0 - hz1) / (2 * eps)
+    const l = Math.hypot(nx, 1, nz)
+    out.x = nx / l
+    out.y = 1 / l
+    out.z = nz / l
+    return out
   }
 }
+
+const _scratch = { y: 0, foam: 0, leanX: 0, leanZ: 0 }
 
 // scale a shoreward travel direction's angle off the shore normal (-X)
 function refract(v) {

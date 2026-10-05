@@ -10,6 +10,7 @@
 // round under you, and paddling (WASD/arrows) brings it straight to your view.
 
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { makeBoard } from './board.js'
 
 // --- tuning (metres / radians) -------------------------------------------
@@ -35,21 +36,22 @@ const WETSUIT = new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 1, 
 const SKIN = new THREE.MeshStandardMaterial({ color: 0xd9a878, roughness: 1, flatShading: true })
 
 const UP = new THREE.Vector3(0, 1, 0)
-function limb(a, b, r, mat) {
+const _n = { x: 0, y: 1, z: 0 } // scratch normal
+
+function limb(a, b, r) {
   const d = new THREE.Vector3().subVectors(b, a)
   const len = d.length()
-  const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(len - r, 0.01), 2, 7), mat)
-  m.position.copy(a).add(b).multiplyScalar(0.5)
-  m.quaternion.setFromUnitVectors(UP, d.normalize())
-  return m
+  const g = new THREE.CapsuleGeometry(r, Math.max(len - r, 0.01), 2, 7)
+  const q = new THREE.Quaternion().setFromUnitVectors(UP, d.normalize())
+  return g.applyMatrix4(new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)))
 }
 
 // Seated-astride legs + lap, in the seat frame (origin on the deck at the
-// seat, forward -Z). Built once; callers get clones sharing the geometry.
-let legsTemplate = null
-function buildLegs() {
+// seat, forward -Z), as separate wetsuit and skin parts already placed.
+export function legParts() {
   const B = BODY
-  const g = new THREE.Group()
+  const wetsuit = []
+  const skin = []
   for (const side of [-1, 1]) {
     const hip = new THREE.Vector3(side * B.hipHalf, B.hipUp, 0)
     // thigh runs forward along the deck, splayed out to grip the rail
@@ -62,22 +64,35 @@ function buildLegs() {
     const sdz = 0.12
     const sdy = Math.sqrt(B.shin ** 2 - sdx * sdx - sdz * sdz)
     const ankle = new THREE.Vector3(side * (B.kneeHalf + sdx), knee.y - sdy, knee.z - sdz)
-    g.add(limb(hip, knee, B.thighR, WETSUIT))
-    g.add(limb(knee, ankle, B.shinR, WETSUIT))
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.095, B.foot, 0.25), SKIN)
-    foot.position.set(ankle.x, ankle.y - B.foot / 2, ankle.z - 0.07)
-    foot.rotation.x = -0.5 // toes pointed, dangling
-    g.add(foot)
+    wetsuit.push(limb(hip, knee, B.thighR), limb(knee, ankle, B.shinR))
+    const foot = new THREE.BoxGeometry(0.095, B.foot, 0.25)
+    foot.rotateX(-0.5) // toes pointed, dangling
+    foot.translate(ankle.x, ankle.y - B.foot / 2, ankle.z - 0.07)
+    skin.push(foot)
   }
   // pelvis / lap joining the thighs (seen when looking straight down)
-  const pelvis = new THREE.Mesh(new THREE.BoxGeometry(2 * B.hipHalf + 0.13, 0.16, 0.24), WETSUIT)
-  pelvis.position.set(0, B.hipUp + 0.01, 0.06)
-  g.add(pelvis)
-  return g
+  const pelvis = new THREE.BoxGeometry(2 * B.hipHalf + 0.13, 0.16, 0.24)
+  pelvis.translate(0, B.hipUp + 0.01, 0.06)
+  wetsuit.push(pelvis)
+  return { wetsuit, skin }
 }
+
+// one geometry per material: a whole body is 2 draw calls, not 7+
+export function mergeParts(list) {
+  if (list.some((g) => g.index === null)) list = list.map((g) => (g.index === null ? g : g.toNonIndexed()))
+  return mergeGeometries(list)
+}
+
+// Built once; every caller shares the two merged geometries.
+let legGeo = null
 export function makeLegs() {
-  legsTemplate ??= buildLegs()
-  return legsTemplate.clone()
+  if (!legGeo) {
+    const { wetsuit, skin } = legParts()
+    legGeo = { wetsuit: mergeParts(wetsuit), skin: mergeParts(skin) }
+  }
+  const g = new THREE.Group()
+  g.add(new THREE.Mesh(legGeo.wetsuit, WETSUIT), new THREE.Mesh(legGeo.skin, SKIN))
+  return g
 }
 export const MATERIALS = { WETSUIT, SKIN }
 
@@ -114,7 +129,7 @@ export class Body {
     this.bodyYaw += excess * Math.min(dt * (paddling ? 4 : 3), 1)
 
     // the board follows the water slope more than the (stabilised) head does
-    const n = pov.waveField.normalAt(pov.seatX, pov.seatZ, t, 2)
+    const n = pov.waveField.normalAt(pov.seatX, pov.seatZ, t, 2, _n)
     const max = 0.12
     const tz = THREE.MathUtils.clamp(-n.x * 0.8, -max, max)
     const tx = THREE.MathUtils.clamp(n.z * 0.8, -max, max)
