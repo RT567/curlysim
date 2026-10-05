@@ -7,3 +7,4 @@ significant change or decision, and keep the newest doc's "current state" accura
 
 1. [01-overview-and-timeline-2026-09-02.md](01-overview-and-timeline-2026-09-02.md) — the sim, its physics commits day by day, and the Actions-based Pages deploy
 2. [02-body-scale-lineup-seabed-2026-10-05.md](02-body-scale-lineup-seabed-2026-10-05.md) — your legs + a true-size 6'6" board, crowd rules (1–20 surfers, 4.6 m gap, lineup band, north wall), softened swell angle, one shared seabed/beach elevation function, lineup seat just outside the nonlinear onset
+3. [03-wave-train-jam-slowdown-2026-10-05.md](03-wave-train-jam-slowdown-2026-10-05.md) — the sudden permanent slowdown: the wave queue jammed (deep-water gap + waves dying far up the sand), live waves 2–3× normal; fixed by queueing on the local wavelength and dying relative to the shoreline
