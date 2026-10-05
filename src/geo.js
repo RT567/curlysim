@@ -69,6 +69,9 @@ export const NORTH_WALL_Z = LAGOON_Z - LAGOON_SIGMA * Math.sqrt(2 * Math.log(1 /
 // nobody (viewer or crowd) sits further north than this: 115 m south of the wall (Rob, 2026-10-05: 15 m,
 // then 65 m, still put people visibly too far north)
 export const NORTH_SEAT_LIMIT_Z = NORTH_WALL_Z + 115
+// ...and nobody further south than where the South Curl Curl headland (HEADLANDS[0]) starts pushing the
+// shoreline out to its rocks (~z 300): the far end of the surfable beach
+export const SOUTH_SEAT_LIMIT_Z = HEADLANDS[0].z - 1.75 * HEADLANDS[0].sz
 
 export const SHORE_SLOPE = 1 / 14
 export const SHELF_SLOPE = 1 / 50

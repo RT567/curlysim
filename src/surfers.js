@@ -5,7 +5,7 @@
 // semi-sheltered north corner when the NE'er is on, empty when it's junk.
 
 import * as THREE from 'three'
-import { BANK_PEAK_Z, BANK_WAVELENGTH, fromDirToVec, NORTH_SEAT_LIMIT_Z, shorelineX } from './geo.js'
+import { BANK_PEAK_Z, BANK_WAVELENGTH, fromDirToVec, NORTH_SEAT_LIMIT_Z, SOUTH_SEAT_LIMIT_Z, shorelineX } from './geo.js'
 import { makeBoard } from './board.js'
 import { legParts, mergeParts, BODY, MATERIALS } from './body.js'
 
@@ -19,6 +19,7 @@ const SURFER_GAP = 3 // m between other surfers' seats
 // cross-shore of the lineup line, spread up and down the beach in packs
 export const LINEUP_BAND = 4.6
 const PACK_SPREAD = 35 // m: a pack spreads this far either side of its peak
+const OUR_PACK = 0.4 // share of the crowd on your own peak; the rest spread over the peaks down the beach
 
 export function crowdModel(conditions, faceHeight, date, sunAltitudeDeg) {
   // wave quality 0..1
@@ -169,6 +170,19 @@ export class Surfers {
     const northCorner = kn > 9 && windVec.z > 0.35 && windVec.x < 0.2
 
     for (let i = 0; i < MAX_SURFERS; i++) this.surfers[i].visible = i < count
+    // a pack on every sandbank peak whose spread fits between the north wall and the south headland: ours
+    // (BANK_PEAK_Z, near the north end) gets the biggest, the rest share the remainder, so the crowd runs
+    // all the way down the beach instead of bunching between you and the north wall
+    const peaks = []
+    for (let k = -3; k <= 6; k++) {
+      const p = BANK_PEAK_Z + k * BANK_WAVELENGTH
+      if (p - PACK_SPREAD >= NORTH_SEAT_LIMIT_Z && p + PACK_SPREAD <= SOUTH_SEAT_LIMIT_Z) peaks.push(p)
+    }
+    // and one tucked against the south headland, if the last peak leaves that end of the beach empty
+    const southEnd = SOUTH_SEAT_LIMIT_Z - PACK_SPREAD
+    if (southEnd - peaks[peaks.length - 1] > 2 * PACK_SPREAD) peaks.push(southEnd)
+    const others = peaks.filter((p) => p !== BANK_PEAK_Z)
+    const pickPeak = () => (others.length === 0 || Math.random() < OUR_PACK ? BANK_PEAK_Z : others[(Math.random() * others.length) | 0])
     const line = this._lineFromShore()
     this._seatBuddy(undefined, line)
     const placed = [this.surfers[0].userData.home]
@@ -181,17 +195,12 @@ export class Surfers {
           // tucked in just south of the north headland wall
           z = NORTH_SEAT_LIMIT_Z + Math.random() * 110
         } else {
-          // packs on three peaks: ours, one south, and one north (pulled in
-          // so its whole spread stays south of the north headland wall)
-          const r = Math.random()
-          const north = Math.max(BANK_PEAK_Z - BANK_WAVELENGTH, NORTH_SEAT_LIMIT_Z + PACK_SPREAD)
-          const peak = r < 0.4 ? BANK_PEAK_Z : r < 0.7 ? north : BANK_PEAK_Z + BANK_WAVELENGTH
-          z = peak + THREE.MathUtils.randFloatSpread(2 * PACK_SPREAD)
+          z = pickPeak() + THREE.MathUtils.randFloatSpread(2 * PACK_SPREAD)
         }
         // only the buddy sits in the close ring: everyone else is further
         // along the beach (pushed to the nearer side if a draw lands close)
         if (Math.abs(z - vz) < BUDDY_R[1]) z = vz + (z >= vz ? 1 : -1) * (BUDDY_R[1] + Math.random() * 4)
-        z = Math.max(z, NORTH_SEAT_LIMIT_Z)
+        z = THREE.MathUtils.clamp(z, NORTH_SEAT_LIMIT_Z, SOUTH_SEAT_LIMIT_Z)
         if (placed.every((p) => Math.abs(p.z - z) > SURFER_GAP)) break
       }
       // the same band as the viewer: just outside the break at this z

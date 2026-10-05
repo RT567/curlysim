@@ -37,3 +37,15 @@ Headless, 10 min per case — live waves / crest gaps after 10 min:
 | 3 m 14 s | 3 → 6 | 3–4 |
 
 Visible side effect: offshore crest spacing is natural again (widening seaward) instead of uniformly packed.
+
+## Crowd spread along the whole beach (same day)
+Rob: "always people sitting north, very few sitting south". North/south were not swapped (yaw 0 faces the
+beach; the close North Curl Curl wall, z ≈ −521, is on your right; the far South Curl Curl headland is
+HEADLANDS[0] at z 650). The viewer sits at BANK_PEAK_Z = −300, ~220 m from the north wall, and populate()
+only used three peaks (ours, a clamped north one, −76), so everyone landed in z −406…−42: bunched between
+you and the near headland, nothing down the south half.
+Now: `SOUTH_SEAT_LIMIT_Z = HEADLANDS[0].z − 1.75·sz` (≈ 300, where the south headland starts pushing the
+shoreline out); packs on every sandbank peak whose ±PACK_SPREAD fits between the two limits (−300, −76,
+148) plus one against the south headland (≈ 265); OUR_PACK = 0.4 of the crowd on your peak, the rest
+spread evenly. 40 reseats / 400 surfers: none > 60 m north of you; 175 in your pack, 66 at −240…0, 75 at
+0…200, 84 at 200…300; closest to you 7.2 m.
